@@ -1,0 +1,22 @@
+# Pastas de compilação e banco de dados
+db/
+incremental_db/
+output_files/
+simulation/
+greybox_tmp/
+hc_output/
+
+# Arquivos de log e relatórios
+*.rpt
+*.summary
+*.txt
+*.smsg
+*.jdi
+*.pin
+*.done
+*.qws
+*.bak
+
+# Arquivos gerados por IPs
+*.v.bak
+*.sv.bak
