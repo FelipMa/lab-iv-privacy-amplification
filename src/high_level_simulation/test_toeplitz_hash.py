@@ -1,9 +1,5 @@
 """
 Tests for the Toeplitz hash model.
-
-Independent reference using scipy.linalg.toeplitz + numpy matmul.
-Verilog cross-checks apply the Hankel-to-Toeplitz seed mapping at
-the test boundary only.
 """
 
 import random
@@ -21,8 +17,6 @@ from toeplitz_hash import (
     toeplitz_hash,
 )
 
-
-# -- int_to_bits / bits_to_int ------------------------------------ #
 
 class TestIntBitsConversion:
 
@@ -53,8 +47,6 @@ class TestIntBitsConversion:
         bits = int_to_bits(0x1_0000_0001, 32)
         assert bits_to_int(bits) == 1
 
-
-# -- build_toeplitz_matrix ----------------------------------------- #
 
 class TestBuildToeplitzMatrix:
 
@@ -159,8 +151,6 @@ class TestToeplitzHashManual:
                 expected_bit = sum(T[i, j] * key[j] for j in range(KEY_BITS)) % 2
                 assert h[i] == expected_bit
 
-
-# -- Full 32-bit output ------------------------------------------- #
 
 class TestFullOutput:
 

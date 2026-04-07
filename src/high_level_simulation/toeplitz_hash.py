@@ -22,8 +22,6 @@ OUTPUT_BITS = 32
 SEED_BITS = KEY_BITS + OUTPUT_BITS - 1  # 63
 
 
-# -- Core model ---------------------------------------------------- #
-
 def build_toeplitz_matrix(seed: NDArray[np.uint8]) -> NDArray[np.uint8]:
     """Build 32x32 binary Toeplitz matrix from 63-element seed.
 
@@ -56,7 +54,7 @@ def toeplitz_hash(
     return (T @ key) % 2
 
 
-# -- Boundary helpers (Verilog comparison only) -------------------- #
+# -- Necessário para testar se o verilog está criando o mesmo resultado -------------------- #
 
 def int_to_bits(value: int, width: int) -> NDArray[np.uint8]:
     """Integer to LSB-first binary vector. Bit 0 of value -> index 0."""
