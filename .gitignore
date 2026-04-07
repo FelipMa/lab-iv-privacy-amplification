@@ -20,3 +20,9 @@ hc_output/
 # Arquivos gerados por IPs
 *.v.bak
 *.sv.bak
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
