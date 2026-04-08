@@ -2,20 +2,21 @@
 
 module compression_unit_tb;
 
-    // Definindo o grau de paralelismo para o teste
+    // Parâmetros Globais do TB
     parameter P = 4;
+    parameter W = 32;
 
-    // Sinais
+    // Sinais parametrizados
     reg clock;
     reg reset;
-    reg [31:0] key;
-    // O tamanho 62:0 assume o pior caso (paralelismo 32)
-    reg [62:0] matrix_window; 
-    wire [31:0] hash_out;
+    reg [W-1:0] key;
+    reg [(W+P-2):0] matrix_window; 
+    wire [P-1:0] hash_out;
 
     // Instanciação da Compression Unit
     compression_unit #(
-        .PARALLELISM(P)
+        .P(P),
+        .W(W)
     ) uut (
         .clock         (clock),
         .reset         (reset),
@@ -30,21 +31,21 @@ module compression_unit_tb;
 
     // Função para calcular o esperado em software
     function [P-1:0] calc_expected;
-        input [31:0] k;
-        input [62:0] m_win;
+        input [W-1:0] k;
+        input [(W+P-2):0] m_win;
         
         integer i, j;
-        reg [31:0] current_slice;
+        reg [W-1:0] current_slice;
         reg bit_result;
         reg [P-1:0] full_result;
         
         begin
             full_result = 0;
             for (i = 0; i < P; i = i + 1) begin
-                current_slice = m_win[i +: 32];
+                current_slice = m_win[i +: W];
                 bit_result = 1'b0;
                 
-                for (j = 0; j < 32; j = j + 1) begin
+                for (j = 0; j < W; j = j + 1) begin
                     bit_result = bit_result ^ (k[j] & current_slice[j]);
                 end
                 
@@ -56,8 +57,8 @@ module compression_unit_tb;
 
     // Tarefa de verificação
     task apply_and_check;
-        input [31:0] t_key;
-        input [62:0] t_matrix_window;
+        input [W-1:0] t_key;
+        input [(W+P-2):0] t_matrix_window;
         input [P-1:0] t_expected;
         input [151:0] t_label;
         
@@ -66,11 +67,8 @@ module compression_unit_tb;
             key = t_key;
             matrix_window = t_matrix_window;
             
-            // Espera a borda de subida onde a atribuição <= ocorre
             @(posedge clock); #1;
-            
-            // Isola apenas os bits válidos baseados no paralelismo escolhido
-            actual_out = hash_out[P-1:0];
+            actual_out = hash_out;
             
             if (actual_out === t_expected)
                 $display("[PASS] %s | hash_out=%b (esperado=%b)",
@@ -82,8 +80,8 @@ module compression_unit_tb;
     endtask
 
     integer idx;
-    reg [31:0] rand_key;
-    reg [62:0] rand_mat;
+    reg [W-1:0] rand_key;
+    reg [(W+P-2):0] rand_mat;
 
     initial begin
         // -----------------------------------------------
@@ -95,17 +93,15 @@ module compression_unit_tb;
 
         @(posedge clock); #1;
 
-        if (hash_out[P-1:0] === {P{1'b0}})
+        if (hash_out === {P{1'b0}})
             $display("[PASS] Reset        | hash_out=0 apos reset");
         else
-            $display("[FAIL] Reset        | hash_out=%b (esperado=0)", hash_out[P-1:0]);
+            $display("[FAIL] Reset        | hash_out=%b (esperado=0)", hash_out);
             
         reset = 0;
 
-        // -----------------------------------------------
-        // Casos Determinísticos (Valores Hardcoded)
-        // -----------------------------------------------
-        $display("--- Casos deterministicos (Paralelismo = %0d) ---", P);
+        // Casos Determinísticos (Escritos assumindo P=4 e W=32)
+        $display("--- Casos deterministicos (P = %0d, W = %0d) ---", P, W);
         
         // Zeros absolutos -> Esperado: 4'b0000
         apply_and_check(32'h00000000, 63'h0000000000000000, 4'b0000, "Zeros           ");
@@ -144,7 +140,7 @@ module compression_unit_tb;
         apply_and_check(32'h80000000, 63'h0000000480000000, 4'b1001, "Limite Superior");
 
         // -----------------------------------------------
-        // Casos Aleatórios (Usa a função calc_expected inline)
+        // Casos Aleatórios
         // -----------------------------------------------
         $display("--- Casos aleatorios ---");
         for (idx = 0; idx < 10; idx = idx + 1) begin
@@ -158,16 +154,16 @@ module compression_unit_tb;
         // -----------------------------------------------
         $display("--- Teste de Reset Assincrono / Sincrono ---");
         key = 32'hDEADBEEF;
-        matrix_window = 63'hCAFEBABEDEADBEEF;
+        matrix_window = 64'hCAFEBABEDEADBEEF;
         
         @(posedge clock); #1;
         reset = 1;
         @(posedge clock); #1;
         
-        if (hash_out[P-1:0] === {P{1'b0}})
+        if (hash_out === {P{1'b0}})
             $display("[PASS] Reset mid-op | hash_out=0 apos reset");
         else
-            $display("[FAIL] Reset mid-op | hash_out=%b (esperado=0)", hash_out[P-1:0]);
+            $display("[FAIL] Reset mid-op | hash_out=%b (esperado=0)", hash_out);
             
         reset = 0;
 

@@ -1,15 +1,18 @@
 `timescale 1ns/1ps
 
 module hash_engine_tb;
+    // Parâmetros Globais do TB
+    parameter W = 32;
 
-    // Sinais
+    // Sinais dimensionados por W
     reg clock;
     reg reset;
-    reg [31:0] key;
-    reg [31:0] matrix;
+    reg [W-1:0] key;
+    reg [W-1:0] matrix;
     wire hash_b;
 
-    hash_engine uut (
+    // Instanciação parametrizada
+    hash_engine #(.W(W)) uut (
         .clock  (clock),
         .reset  (reset),
         .key    (key),
@@ -23,13 +26,13 @@ module hash_engine_tb;
 
     // Função para calcular o esperado em software
     function calc_expected;
-        input [31:0] k;
-        input [31:0] m;
+        input [W-1:0] k;
+        input [W-1:0] m;
         integer j;
         reg result;
         begin
             result = 1'b0;
-            for (j = 0; j < 32; j = j + 1)
+            for (j = 0; j < W; j = j + 1)
                 result = result ^ (k[j] & m[j]);
             calc_expected = result;
         end
@@ -37,9 +40,9 @@ module hash_engine_tb;
 
     // Tarefa de verificação
     task apply_and_check;
-        input [31:0] t_key;
-        input [31:0] t_matrix;
-        input        t_expected;
+        input [W-1:0] t_key;
+        input [W-1:0] t_matrix;
+        input         t_expected;
         input [127:0] t_label;
         begin
             key    = t_key;
@@ -55,10 +58,9 @@ module hash_engine_tb;
     endtask
 
     integer i;
-    reg [31:0] rand_key, rand_mat;
+    reg [W-1:0] rand_key, rand_mat;
 
     initial begin
-        // Reset inicial
         reset = 1;
         key = 0;
         matrix = 0;
@@ -69,7 +71,7 @@ module hash_engine_tb;
             $display("[PASS] Reset | hash_b=0 apos reset");
         else
             $display("[FAIL] Reset | hash_b=%b (esperado=0)", hash_b);
-
+            
         reset = 0;
 
         // -----------------------------------------------
@@ -99,6 +101,7 @@ module hash_engine_tb;
         // -----------------------------------------------
         $display("--- Casos aleatorios ---");
         for (i = 0; i < 5; i = i + 1) begin
+            // Gerando valores aleatórios compatíveis com a largura
             rand_key = $random;
             rand_mat = $random;
             apply_and_check(rand_key, rand_mat,
@@ -109,19 +112,22 @@ module hash_engine_tb;
         // -----------------------------------------------
         // Verifica reset no meio da operação
         // -----------------------------------------------
-        key = 32'hDEADBEEF; matrix = 32'hCAFEBABE;
+        key = 32'hDEADBEEF;
+        matrix = 32'hCAFEBABE;
+
         @(posedge clock); #1;
         reset = 1;
         @(posedge clock); #1;
+        
         if (hash_b === 1'b0)
             $display("[PASS] Reset mid-op | hash_b=0 apos reset");
         else
             $display("[FAIL] Reset mid-op | hash_b=%b (esperado=0)", hash_b);
+            
         reset = 0;
 
         #20;
         $display("--- Testbench concluido ---");
         $stop;
     end
-
 endmodule

@@ -1,8 +1,10 @@
-module hash_engine (
+module hash_engine #(
+    parameter W = 32 // Tamanho da chave
+)(
     input wire clock,
     input wire reset,
-    input wire [31:0] key,
-    input wire [31:0] matrix,
+    input wire [W-1:0] key,
+    input wire [W-1:0] matrix,
     output reg hash_b
 );
 

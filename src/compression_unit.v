@@ -1,25 +1,28 @@
 module compression_unit #(
-    parameter PARALLELISM = 1 // Paralelismo maximo será 32, iremos assumir o tamanho maximo para declarar entradas e saidas
+    parameter P = 4, // Paralelismo
+    parameter W = 32 // Tamanho da chave
 )(
     input wire clock,
     input wire reset,
-    input wire [31:0] key,
-    input wire [62:0] matrix_window, // [(31 + PARALLELISM - 1) : 0]
-    output wire [31:0] hash_out // [PARALLELISM - 1 : 0]
+    input wire [W - 1 : 0] key,
+    // O tamanho reflete: W bits básicos + (P - 1) bits extras para deslizar
+    input wire [(W + P - 2) : 0] matrix_window,
+    output wire [P - 1 : 0] hash_out
 );
 
     genvar i;
 
     generate
-        for (i = 0; i < PARALLELISM; i = i + 1) begin : gen_hash_engines
-            hash_engine engine_inst (
+        for (i = 0; i < P; i = i + 1) begin : gen_hash_engines
+            // Instancia a hash engine propagando os parâmetros
+            hash_engine #(
+                .W(W)
+            ) engine_inst (
                 .clock   (clock),
                 .reset   (reset),
                 .key     (key),
-                // Cada engine pega uma "fatia" de 32 bits.
-                // A engine 0 pega os bits [31:0]
-                // A engine 1 pega os bits [32:1] e assim por diante.
-                .matrix  (matrix_window[i +: 32]), 
+                // Cada engine pega uma fatia de 'W' bits.
+                .matrix  (matrix_window[i +: W]), 
                 .hash_b  (hash_out[i])
             );
         end
