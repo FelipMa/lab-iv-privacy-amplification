@@ -9,7 +9,6 @@ hc_output/
 # Arquivos de log e relatórios
 *.rpt
 *.summary
-*.txt
 *.smsg
 *.jdi
 *.pin
