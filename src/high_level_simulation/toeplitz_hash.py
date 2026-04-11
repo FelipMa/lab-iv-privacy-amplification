@@ -1,14 +1,10 @@
 """
-Toeplitz hash model for privacy amplification.
+Toeplitz hash model for privacy amplification in QKD.
 
 Computes h = (T @ a) mod 2, where T is a 32x32 Toeplitz matrix
-from a 63-element binary seed and a is the 32-bit key vector.
+built from a 63-element binary seed and a is a 32-bit key vector.
 
-Always produces the full 32-bit output; parallelism is a hardware
-concern handled at the test boundary.
-
-Core functions use NumPy arrays. int/bit helpers are for Verilog
-test vector conversion only.
+This is the Python equivalent of compression_unit.v / hash_engine.v.
 """
 
 from __future__ import annotations
@@ -52,18 +48,3 @@ def toeplitz_hash(
     """Compute full 32-bit Toeplitz hash: (T @ key) mod 2."""
     T = build_toeplitz_matrix(seed)
     return (T @ key) % 2
-
-
-# -- Necessário para testar se o verilog está criando o mesmo resultado -------------------- #
-
-def int_to_bits(value: int, width: int) -> NDArray[np.uint8]:
-    """Integer to LSB-first binary vector. Bit 0 of value -> index 0."""
-    return np.array([(value >> i) & 1 for i in range(width)], dtype=np.uint8)
-
-
-def bits_to_int(bits: NDArray[np.uint8]) -> int:
-    """LSB-first binary vector to integer. Inverse of int_to_bits."""
-    result = 0
-    for i, b in enumerate(bits):
-        result |= int(b) << i
-    return result
