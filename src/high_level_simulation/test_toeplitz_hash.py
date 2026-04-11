@@ -1,38 +1,41 @@
 """
-Tests for the Toeplitz hash model.
+Testes do modelo de hash Toeplitz.
 
-These tests verify the Python reference model independently.
-The Verilog testbenches verify the hardware separately.
-Both should agree on the same test vectors.
+Vetores de teste deterministicos usando inteiros hexadecimais.
+As mesmas entradas/saidas podem ser usadas nos testbenches Verilog
+para verificar que ambas implementacoes concordam.
 """
 
-import random
-
+import pytest
 import numpy as np
 
 from toeplitz_hash import (
     KEY_BITS,
-    OUTPUT_BITS,
     SEED_BITS,
-    build_toeplitz_matrix,
+    bits_to_int,
+    int_to_bits,
     toeplitz_hash,
 )
 
 
-class TestToeplitzHash:
-    def test_row_by_row_matches_matmul(self):
-        """Explicit loop vs matmul for random inputs."""
-        rng = random.Random(55)
-        for _ in range(50):
-            seed = np.array(
-                [rng.randint(0, 1) for _ in range(SEED_BITS)], dtype=np.uint8
-            )
-            key = np.array(
-                [rng.randint(0, 1) for _ in range(KEY_BITS)], dtype=np.uint8
-            )
-            T = build_toeplitz_matrix(seed)
-            h = toeplitz_hash(key, seed)
-
-            for i in range(OUTPUT_BITS):
-                expected_bit = sum(T[i, j] * key[j] for j in range(KEY_BITS)) % 2
-                assert h[i] == expected_bit
+@pytest.mark.parametrize(
+    "seed_hex, key_hex, expected_hex",
+    [
+        (0x0000000000000000, 0x00000000, 0x00000000),
+        (0x7FFFFFFFFFFFFFFF, 0xFFFFFFFF, 0x00000000),
+        (0x0000000000000001, 0x00000001, 0x00000001),
+        (0x5555555555555555, 0xAAAAAAAA, 0xCCCCCCCC),
+        (0x01234567890ABCDE, 0xDEADBEEF, 0x894C0251),
+        (0x7FFFFFFFFFFFFFFF, 0x00000001, 0xFFFFFFFF),
+        (0x3A5C6F8912DE4B70, 0xCAFEBABE, 0x090B2525),
+    ],
+)
+def test_toeplitz_hash(seed_hex, key_hex, expected_hex):
+    seed = int_to_bits(seed_hex, SEED_BITS)
+    key = int_to_bits(key_hex, KEY_BITS)
+    h = toeplitz_hash(key, seed)
+    result = bits_to_int(h)
+    assert result == expected_hex, (
+        f"seed=0x{seed_hex:016X} key=0x{key_hex:08X}: "
+        f"got 0x{result:08X}, expected 0x{expected_hex:08X}"
+    )
