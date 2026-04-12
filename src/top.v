@@ -1,46 +1,63 @@
 module top #(
-    parameter P = 1042,
-    parameter W = 64
+    parameter W = 64, 
+    parameter P = 1600
 )(
-    input  wire clk,
-    input  wire reset,
-    
-    // Um pino de saída real
-    output wire dummy_out 
+    input wire clk_fpga, // clock do fpga
+    input wire rst_fpga, // algum botao do fpga
+    output wire LED_done // LED para indicar finalizacao
 );
-
-    // Registradores internos simulando a chegada de dados
-    reg [W-1:0] key;
-    reg [(W+P-2):0] matrix_window;
+    wire clock = clk_fpga;
+    wire reset = rst_fpga; 
     
-    wire [P-1:0] hash_out;
+    // Fios do Input Buffer para a Compression Unit
+    wire [W-1:0] current_key_chunk;
 
+    // Registrador que fica mudando a cada clock para simular um input
+    reg [W-1:0] current_key_chunk_reg;
+    assign current_key_chunk = current_key_chunk_reg;
+
+    // Fios do Seed Generator para a Compression Unit
+    wire [(W+P-2):0] current_matrix_window;
+    
+    // Registrador que fica mudando a cada clock para simular uma seed
+    reg [(W+P-2):0] current_matrix_window_reg;
+    assign current_matrix_window = current_matrix_window_reg;
+
+    // Fios da Compression Unit para a Output Interface
+    wire [P-1:0] current_hash_out;
+    (* noprune *) reg [P-1:0] dummy_out_reg;
+
+    // =========================================================================
+    // Compression Unit
+    // =========================================================================
     compression_unit #(
         .P(P),
         .W(W)
-    ) comp_inst (
-        .clock         (clk),
+    ) u_compression_unit (
+        .clock         (clock),
         .reset         (reset),
-        .key           (key),
-        .matrix_window (matrix_window),
-        .hash_out      (hash_out)
+        .key           (current_key_chunk),
+        .matrix_window (current_matrix_window),
+        .hash_out      (current_hash_out)
     );
 
-    // Lógica para variar as entradas a cada clock
-    always @(posedge clk) begin
+    always @(posedge clock) begin
         if (reset) begin
-            key <= {W{1'b1}}; 
-            matrix_window <= 0;
+            current_key_chunk_reg <= {W{1'b0}};
+            current_matrix_window_reg <= {(W+P-1){1'b0}};
+            dummy_out_reg <= {P{1'b0}};
         end else begin
-            // Varia a chave e a matriz continuamente
-            key <= ~key;
-            matrix_window <= matrix_window + 1'b1;
+            // current_key_chunk_reg e current_matrix_window_reg devem receber o valor do input buffer e do seed generator
+			// aqui no exemplo ficam mudando aleatoriamente usando um shift register
+            current_key_chunk_reg <= {current_key_chunk_reg[(W-2):0], ~current_key_chunk_reg[W-1]};
+            current_matrix_window_reg <= {current_matrix_window_reg[(W+P-3):0], ~current_matrix_window_reg[W+P-2]};
+            
+            // grava a saida no registrador final
+            dummy_out_reg <= current_hash_out;
         end
     end
 
-    // Reduz todos os bits do hash em 1 único bit.
-    // Isso OBRIGA o sintetizador a calcular toda a matriz de P e W
-    // para conseguir saber qual será o valor lógico deste único pino.
-    assign dummy_out = ^hash_out;
+    // Dummy temporario apenas para os sinais nao serem deletados no Quartus pelo otimizador.
+    assign LED_done = dummy_out_reg[0];
 
 endmodule
