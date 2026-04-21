@@ -1,20 +1,19 @@
 module compression_unit #(
-    parameter P = 4, // Paralelismo
-    parameter W = 32 // Tamanho da chave
+    parameter P = 128, // Paralelismo
+    parameter W = 128 // Tamanho da chave
 )(
     input wire clock,
     input wire reset,
-    input wire [W - 1 : 0] key,
-    // O tamanho reflete: W bits básicos + (P - 1) bits extras para deslizar
-    input wire [(W + P - 2) : 0] matrix_window,
-    output wire [P - 1 : 0] hash_out
+    input wire [(W-1):0] key,
+    input wire [(W+P-2) : 0] matrix_window,
+    output wire [(P-1):0] hash_out
 );
 
     genvar i;
 
     generate
         for (i = 0; i < P; i = i + 1) begin : gen_hash_engines
-            // Instancia a hash engine propagando os parâmetros
+            // Instancia a hash engine propagando os parametros
             hash_engine #(
                 .W(W)
             ) engine_inst (

@@ -1,5 +1,5 @@
 module hash_engine #(
-    parameter W = 32 // Tamanho da chave
+    parameter W = 128 // Tamanho da chave
 )(
     input wire clock,
     input wire reset,
@@ -8,12 +8,12 @@ module hash_engine #(
     output reg hash_b
 );
 
-    // (reset síncrono)
+    // (reset sincrono)
     always @(posedge clock) begin
         if (reset) begin
             hash_b <= 1'b0;
         end else begin
-            // Faz o AND bit a bit (multiplicação) e a redução XOR (somatório mod 2)
+            // Faz o AND bit a bit (multiplicacao) e a redução XOR (somatorio mod 2)
             hash_b <= ^(key & matrix);
         end
     end
