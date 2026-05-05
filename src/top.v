@@ -1,42 +1,41 @@
 module top #(
-    parameter W = 64, // 128
-    parameter P = 64, // 782
+    parameter W = 128, // 128
+    parameter P = 782, // 782
     parameter N = 1_000_000
 )(
     input wire clk_fpga,
     input wire rst_fpga,
     output wire LED_done
 );
+
     wire clock = clk_fpga;
     wire reset = rst_fpga; 
 
     localparam CYCLES_PER_ROW = N/W;
-    
+
     // 16 bits, mas pode variar conforme o resultado de N/W
     reg [15:0] cycle_counter;
-    
+
     // Fios do Input Buffer para a Compression Unit
     wire [W-1:0] current_key_chunk;
-
     // Registrador que fica mudando a cada clock para simular um input
     reg [W-1:0] current_key_chunk_reg;
     assign current_key_chunk = current_key_chunk_reg;
 
     // Fios do Seed Generator para a Compression Unit
     wire [(W+P-2):0] current_matrix_window;
-
     // Registrador que fica mudando a cada clock para simular uma seed
     reg [(W+P-2):0] current_matrix_window_reg;
     assign current_matrix_window = current_matrix_window_reg;
 
     // Fios da Compression Unit para o Hash Register
     wire [P-1:0] current_hash_out;
-
     (* noprune *) reg [P-1:0] hash_register;
 
-    // Sinal de controle puro para reiniciar a Compression Unit
+    // Sinal de controle para reiniciar a Compression Unit
+    // IMPORTANTE: Modificado para o ciclo 2 devido aos 2 atrasos de clock do novo Pipeline
     wire comp_unit_clear;
-    assign comp_unit_clear = (cycle_counter == 16'd0) ? 1'b1 : 1'b0;
+    assign comp_unit_clear = (cycle_counter == 16'd2) ? 1'b1 : 1'b0;
 
     // =========================================================================
     // Compression Unit
@@ -66,8 +65,9 @@ module top #(
                 cycle_counter <= cycle_counter + 16'd1;
             end
 
-            // Gravação do Hash (No ciclo 0 a comp unit estabilizou o cálculo da linha anterior)
-            if (cycle_counter == 16'd0) begin
+            // Gravação do Hash
+            // Capturamos no ciclo 2, que é o momento exato em que o dado pipelizado da linha anterior sai da Compression Unit.
+            if (cycle_counter == 16'd2) begin
                 hash_register <= current_hash_out;
             end
 
