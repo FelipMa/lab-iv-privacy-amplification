@@ -66,10 +66,10 @@ module top #(
             delay_counter <= 2'd0;
         end else begin
             
-            // Incrementa delay_counter até 3 (é o tempo que leva para o pipeline encher).
-            // Enquanto for menor que 3, a lógica do hash_counter não é ativada.
+            // Incrementa delay_counter até 2 (tempo que leva para inicialização e para o pipeline encher).
+            // Com os atuais mocks, não há tempo de inicialização
             // (ver vídeo)
-            if (delay_counter < 2'd3) begin
+            if (delay_counter < 2'd2) begin
                 delay_counter <= delay_counter + 2'd1;
             end else begin
                 // 1. Controle do contador de hashes
