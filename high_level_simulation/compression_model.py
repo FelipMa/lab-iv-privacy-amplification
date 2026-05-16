@@ -1,27 +1,28 @@
-"""Modelo de referencia parametrizavel para a compression_unit (v1).
+"""Modelo de referencia Toeplitz parametrizavel (W, P) para a compression_unit.
 
-O hardware (src/compression_unit.v + src/hash_engine.v) calcula, para cada
-engine i em [0, P):
+Espelha o algoritmo de toeplitz_hash.py (32-bit) parametrizando para os
+valores usados pelo testbench de validacao (W=P=8 por default).
 
-    hash_out[i] = XOR_j ( key[j] AND matrix_window[i + j] )    com j em [0, W)
+Construcao da matriz T de shape (P, W) a partir do matrix_window (W+P-1 bits),
+com bits indexados em LSB-first:
 
-Em forma matricial sobre GF(2):
+    first_row[j] = matrix_window[j]            para j em [0, W)
+    first_col[0] = matrix_window[0]
+    first_col[i] = matrix_window[W + i - 1]    para i em [1, P)
+    T = toeplitz(first_col, first_row)
 
-    hash_out = (M @ key) mod 2
+A operacao calculada e:
 
-onde M tem shape (P, W) e M[i, j] = matrix_window_bits[i + j]. As anti-
-diagonais de M sao constantes -> M e uma matriz de **Hankel**, construida
-aqui via scipy.linalg.hankel.
+    hash = (T @ key) mod 2
 
-Defaults W=8, P=8 sao os usados pelo testbench de validacao
-src/tb_mem_validation/top_mem_tb.v.
+com key de W bits e hash de P bits.
 """
 
 from __future__ import annotations
 
 import numpy as np
 from numpy.typing import NDArray
-from scipy.linalg import hankel
+from scipy.linalg import toeplitz
 
 DEFAULT_W = 8
 DEFAULT_P = 8
@@ -40,16 +41,19 @@ def bits_to_int(bits: NDArray[np.uint8]) -> int:
     return result
 
 
-def build_hash_matrix(
+def build_toeplitz_matrix(
     matrix_window: int,
     *,
     W: int = DEFAULT_W,
     P: int = DEFAULT_P,
 ) -> NDArray[np.uint8]:
-    """Constroi a matriz P x W de Hankel: M[i, j] = matrix_window_bits[i + j]."""
-    mw_width = W + P - 1
-    bits = int_to_bits(matrix_window, mw_width)
-    return hankel(bits[:P], bits[P - 1 : P + W - 1]).astype(np.uint8)
+    """Constroi a matriz Toeplitz P x W a partir do matrix_window (W+P-1 bits)."""
+    mw_bits = int_to_bits(matrix_window, W + P - 1)
+    first_row = mw_bits[:W]
+    first_col = np.empty(P, dtype=np.uint8)
+    first_col[0] = mw_bits[0]
+    first_col[1:] = mw_bits[W : W + P - 1]
+    return toeplitz(first_col, first_row).astype(np.uint8)
 
 
 def compress(
@@ -59,7 +63,7 @@ def compress(
     W: int = DEFAULT_W,
     P: int = DEFAULT_P,
 ) -> int:
-    """Calcula hash_out de P bits aplicando (M @ key) mod 2 via numpy."""
+    """Calcula hash de P bits aplicando (T @ key) mod 2 via numpy."""
     mw_width = W + P - 1
     if not 0 <= key < (1 << W):
         raise ValueError(f"key fora do range de {W} bits: {key:#x}")
@@ -69,6 +73,6 @@ def compress(
         )
 
     key_bits = int_to_bits(key, W)
-    M = build_hash_matrix(matrix_window, W=W, P=P)
-    hash_bits = (M @ key_bits) % 2
+    T = build_toeplitz_matrix(matrix_window, W=W, P=P)
+    hash_bits = (T @ key_bits) % 2
     return bits_to_int(hash_bits)
