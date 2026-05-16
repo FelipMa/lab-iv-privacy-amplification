@@ -26,3 +26,6 @@ hc_output/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Simulacao gerada pelo testbench de validacao
+src/tb_mem_validation/sim/
