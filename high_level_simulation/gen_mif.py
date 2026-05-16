@@ -1,10 +1,12 @@
-"""Gera input_vectors.mif e expected_outputs.txt para a validacao da v1.
+"""Gera input_vectors.mif e expected_outputs.hex para a validacao da v1.
 
-Empacotamento da palavra de 23 bits, MSB-first:
+Empacotamento da palavra de 23 bits (default W=8, P=8), MSB-first:
     bits[22:8] = matrix_window (15 bits)
     bits[7:0]  = key            (8 bits)
 
 A profundidade da memoria de entrada e 16 (4-bit address).
+Os valores esperados sao calculados pelo modelo numpy/scipy em
+compression_model.compress.
 """
 
 from __future__ import annotations
@@ -12,19 +14,18 @@ from __future__ import annotations
 import random
 from pathlib import Path
 
-import sys
+from compression_model import DEFAULT_P as P
+from compression_model import DEFAULT_W as W
+from compression_model import compress
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "scripts"))
-
-from toeplitz_hash_w8 import compress, MATRIX_WINDOW_BITS, P, W  # noqa: E402
-
-DEPTH = 16
-WORD_BITS = W + MATRIX_WINDOW_BITS  # 8 + 15 = 23
-
 OUT_DIR = ROOT / "src" / "tb_mem_validation"
 MIF_PATH = OUT_DIR / "input_vectors.mif"
 EXPECTED_PATH = OUT_DIR / "expected_outputs.hex"
+
+DEPTH = 16
+MATRIX_WINDOW_BITS = W + P - 1  # 15
+WORD_BITS = W + MATRIX_WINDOW_BITS  # 23
 
 
 def deterministic_vectors() -> list[tuple[int, int]]:
@@ -52,7 +53,7 @@ def pack(key: int, matrix_window: int) -> int:
 
 
 def write_mif(path: Path, words: list[int]) -> None:
-    hex_chars = (WORD_BITS + 3) // 4  # 6 hex chars para 23 bits
+    hex_chars = (WORD_BITS + 3) // 4
     addr_chars = max(1, (len(words) - 1).bit_length() // 4 + 1)
     lines: list[str] = []
     lines.append(f"WIDTH={WORD_BITS};")

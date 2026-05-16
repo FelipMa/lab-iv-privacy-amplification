@@ -10,6 +10,7 @@ hc_output/
 *.rpt
 *.summary
 *.txt
+!high_level_simulation/requirements.txt
 *.smsg
 *.jdi
 *.pin
