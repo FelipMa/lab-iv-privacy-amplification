@@ -1,6 +1,12 @@
-# Como rodar e validar a v1
+# Como rodar e validar a v1 (hardware Toeplitz)
 
 Validação da `compression_unit` (v1, W=8, P=8) com duas memórias altsyncram do Quartus. O mesmo conjunto de arquivos serve para simulação no ModelSim **e** para síntese na DE2-115.
+
+**Esta branch** (`test/v1-altysncram-hardware-toeplitz-validation`) muda o
+`compression_unit.v` para implementar multiplicação por matriz **Toeplitz**
+(T[i,j] depende de i−j), batendo com a referência Python que usa
+`scipy.linalg.toeplitz`. A versão anterior, baseada em part-select contíguo
+(`matrix_window[i +: W]`), implementava Hankel.
 
 ## Estrutura
 
