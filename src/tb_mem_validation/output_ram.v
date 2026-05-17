@@ -19,6 +19,7 @@ module output_ram (
         .widthad_a             (4),
         .numwords_a            (16),
         .lpm_type              ("altsyncram"),
+        .lpm_hint              ("ENABLE_RUNTIME_MOD=YES, INSTANCE_NAME=ORAM"),
         .address_aclr_a        ("NONE"),
         .outdata_aclr_a        ("NONE"),
         .outdata_reg_a         ("UNREGISTERED"),

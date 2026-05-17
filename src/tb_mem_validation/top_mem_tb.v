@@ -15,11 +15,11 @@
 //   ciclo c+2: hash_out = hash de palavra[k] valido (capturado em wr_addr=k)
 //
 // Execucao recomendada (ModelSim/Questa Altera), a partir de
-// src/tb_mem_validation/sim/:
+// src/tb_mem_validation/:
 //   vlib work
-//   vlog ../*.v ../../compression_unit.v ../../hash_engine.v
+//   vlog *.v ../compression_unit.v ../hash_engine.v
 //   vsim -L altera_mf_ver work.top_mem_tb -do "run -all; quit"
-// O arquivo output_dump.hex sera gerado no cwd da simulacao.
+// O arquivo sim/output_dump.hex sera gerado.
 
 `timescale 1ns/1ps
 
@@ -130,7 +130,7 @@ module top_mem_tb;
         for (dump_i = 0; dump_i < DEPTH; dump_i = dump_i + 1) begin
             $display("  addr=%0d hash=%02h", dump_i, shadow[dump_i]);
         end
-        $writememh("output_dump.hex", shadow);
+        $writememh("sim/output_dump.hex", shadow);
         $display("[tb] wrote output_dump.hex");
         $finish;
     end
