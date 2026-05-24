@@ -1,0 +1,3 @@
+[submodule "Inputbuffer"]
+	path = Inputbuffer
+	url = https://github.com/0Giovane/Inputbuffer.git
