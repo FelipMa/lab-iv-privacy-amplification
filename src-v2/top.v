@@ -1,97 +1,100 @@
 module top #(
-    parameter W = 2, // 128 ou 64 ou 128
-    parameter P = 3, // 782 ou 1563 ou 521
-    parameter N = 10, // 1_000_000
-    parameter L = 6 // 100_000
+    parameter W = 64, 
+    parameter P = 32, 
+    parameter N = 640,
+    parameter L = 64
 )(
-    input wire clk_fpga,
-    input wire rst_fpga,
-    output wire LED_done
-);
-    wire clock = clk_fpga;
-    wire reset = rst_fpga; 
-
-    localparam CYCLES_PER_ROW = N/W;
-
-    // Counter de 16 bits (tem bits de sobra)
-    reg [15:0] hash_counter;
+    input  wire clock,
+    input  wire reset,
     
-    // Contador para aguardar o pipeline encher
-    reg [1:0] delay_counter;
+    // Entradas vindas das memórias ROM
+    input  wire [W-1:0]   rom_key_q,
+    input  wire [W+P-2:0] rom_matrix_q,
+    
+    // Saídas para controlar as memórias ROM
+    output reg  [4:0]     rom_key_addr,
+    output reg  [4:0]     rom_matrix_addr,
+    
+    // Saídas de Resultados
+    output reg  [P-1:0]   hash_register,
+    output reg            done
+);
 
-    // Fios do Input Buffer para a Compression Unit
-    wire [W-1:0] current_key_chunk;
+    localparam CYCLES_PER_BATCH = N / W;
+    localparam TOTAL_BATCHES = L / P;
 
-    // Registrador que fica mudando a cada clock para simular a saída do input buffer
-    reg [W-1:0] current_key_chunk_reg;
-    assign current_key_chunk = current_key_chunk_reg;
-
-    // Fios do Seed Generator para a Compression Unit
-    wire [(W+P-2):0] current_matrix_window;
-
-    // Registrador que fica mudando a cada clock para simular a saída do seed generator
-    reg [(W+P-2):0] current_matrix_window_reg;
-    assign current_matrix_window = current_matrix_window_reg;
-
-    // Fios da Compression Unit para o Hash Register
     wire [P-1:0] current_hash_out;
+    reg comp_unit_clear_acc;
 
-    (* noprune *) reg [P-1:0] hash_register;
-
-    // Sinal de controle para reiniciar a acumulação na Compression Unit
-    wire comp_unit_clear_acc;
-    assign comp_unit_clear_acc = (hash_counter == 16'd0) ? 1'b1 : 1'b0;
-
-    // =========================================================================
-    // Compression Unit
-    // =========================================================================
     compression_unit #(
-        .P(P),
-        .W(W)
+        .P(P), .W(W)
     ) u_compression_unit (
         .clock         (clock),
         .reset         (reset),
         .clear_acc     (comp_unit_clear_acc),
-        .key           (current_key_chunk),
-        .matrix_window (current_matrix_window),
+        .key           (rom_key_q),
+        .matrix_window (rom_matrix_q),
         .hash_out      (current_hash_out)
     );
 
+    reg [2:0] state;
+    reg [15:0] cycle_count;
+    reg [15:0] batch_count;
+    
+    localparam S_INIT=0, S_CALC=1, S_WAIT_PIPE_1=2, S_WAIT_PIPE_2=3, S_SAVE=4, S_DONE=5;
+
     always @(posedge clock) begin
         if (reset) begin
-            current_key_chunk_reg <= {W{1'b0}};
-            current_matrix_window_reg <= {(W+P-1){1'b0}};
-            hash_register <= {P{1'b0}};
-            hash_counter <= 16'd0;
-            delay_counter <= 2'd0;
+            state <= S_INIT;
+            rom_key_addr <= 0;
+            rom_matrix_addr <= 0;
+            comp_unit_clear_acc <= 1;
+            hash_register <= 0;
+            done <= 0;
+            cycle_count <= 0;
+            batch_count <= 0;
         end else begin
-            
-            // Incrementa delay_counter até 2 (tempo que leva para inicialização e para o pipeline encher).
-            // Com os atuais mocks, não há tempo de inicialização
-            // (ver vídeo)
-            if (delay_counter < 2'd2) begin
-                delay_counter <= delay_counter + 2'd1;
-            end else begin
-                // 1. Controle do contador de hashes
-                if (hash_counter == (CYCLES_PER_ROW - 16'd1)) begin
-                    hash_counter <= 16'd0;
-                end else begin
-                    hash_counter <= hash_counter + 16'd1;
+            comp_unit_clear_acc <= 0;
+
+            case (state)
+                S_INIT: begin
+                    comp_unit_clear_acc <= 1; // Zera o acumulador
+                    rom_key_addr <= 0; // Reinicia a leitura da chave
+                    cycle_count <= 0;
+                    state <= S_CALC;
                 end
 
-                // 2. Gravação do Hash
-                if (hash_counter == (CYCLES_PER_ROW - 16'd1)) begin
-                    hash_register <= current_hash_out;
+                S_CALC: begin
+                    // Avança endereços para o próximo ciclo
+                    rom_key_addr <= rom_key_addr + 1;
+                    rom_matrix_addr <= rom_matrix_addr + 1;
+                    
+                    if (cycle_count == CYCLES_PER_BATCH - 1) begin
+                        state <= S_WAIT_PIPE_1; // Acabou de ler o lote
+                    end else begin
+                        cycle_count <= cycle_count + 1;
+                    end
                 end
-            end
 
-            // 3. Atualização aleatória do input buffer e seed generator
-            current_key_chunk_reg <= {current_key_chunk_reg[(W-2):0], ~current_key_chunk_reg[W-1]};
-            current_matrix_window_reg <= {current_matrix_window_reg[(W+P-3):0], ~current_matrix_window_reg[W+P-2]};
+                // O pipeline do hash_engine tem 2 estágios
+                S_WAIT_PIPE_1: state <= S_WAIT_PIPE_2;
+                S_WAIT_PIPE_2: state <= S_SAVE;
+
+                S_SAVE: begin
+                    hash_register <= current_hash_out; // Aqui você pegaria isso para salvar numa RAM de saída real
+                    
+                    if (batch_count == TOTAL_BATCHES - 1) begin
+                        state <= S_DONE;
+                    end else begin
+                        batch_count <= batch_count + 1;
+                        state <= S_INIT; // Prepara o próximo lote
+                    end
+                end
+
+                S_DONE: begin
+                    done <= 1;
+                end
+            endcase
         end
     end
-
-    // Saída dummy
-    assign LED_done = hash_register[0];
-
 endmodule

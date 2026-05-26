@@ -1,14 +1,14 @@
-Analysis & Synthesis Status : Successful - Sun May 24 16:07:28 2026
-Quartus Prime Version : 20.1.1 Build 720 11/11/2020 SJ Lite Edition
+Analysis & Synthesis Status : Successful - Tue May 26 16:56:39 2026
+Quartus Prime Version : 18.1.0 Build 625 09/12/2018 SJ Lite Edition
 Revision Name : lab_iv_privacy_amplification
-Top-level Entity Name : top_de2_115
+Top-level Entity Name : sistema_completo
 Family : Cyclone IV E
-Total logic elements : 3,381
-    Total combinational functions : 3,353
-    Dedicated logic registers : 500
-Total registers : 500
-Total pins : 60
+Total logic elements : 2,870
+    Total combinational functions : 2,870
+    Dedicated logic registers : 2,163
+Total registers : 2163
+Total pins : 35
 Total virtual pins : 0
-Total memory bits : 1,024
+Total memory bits : 5,088
 Embedded Multiplier 9-bit elements : 0
-Total PLLs : 0
+Total PLLs : 1

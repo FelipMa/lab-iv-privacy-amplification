@@ -1,16 +1,16 @@
-Fitter Status : Successful - Sun May 24 16:07:49 2026
-Quartus Prime Version : 20.1.1 Build 720 11/11/2020 SJ Lite Edition
+Fitter Status : Successful - Tue May 26 16:56:56 2026
+Quartus Prime Version : 18.1.0 Build 625 09/12/2018 SJ Lite Edition
 Revision Name : lab_iv_privacy_amplification
-Top-level Entity Name : top_de2_115
+Top-level Entity Name : sistema_completo
 Family : Cyclone IV E
 Device : EP4CE115F29C7
 Timing Models : Final
-Total logic elements : 3,378 / 114,480 ( 3 % )
-    Total combinational functions : 3,353 / 114,480 ( 3 % )
-    Dedicated logic registers : 500 / 114,480 ( < 1 % )
-Total registers : 500
-Total pins : 60 / 529 ( 11 % )
+Total logic elements : 2,886 / 114,480 ( 3 % )
+    Total combinational functions : 2,870 / 114,480 ( 3 % )
+    Dedicated logic registers : 2,163 / 114,480 ( 2 % )
+Total registers : 2163
+Total pins : 35 / 529 ( 7 % )
 Total virtual pins : 0
-Total memory bits : 1,024 / 3,981,312 ( < 1 % )
+Total memory bits : 5,088 / 3,981,312 ( < 1 % )
 Embedded Multiplier 9-bit elements : 0 / 532 ( 0 % )
-Total PLLs : 0 / 4 ( 0 % )
+Total PLLs : 1 / 4 ( 25 % )

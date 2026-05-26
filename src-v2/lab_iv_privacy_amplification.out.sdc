@@ -39,7 +39,8 @@ set_time_format -unit ns -decimal_places 3
 # Create Clock
 #**************************************************************
 
-create_clock -name {clk_fpga} -period 10.000 -waveform { 0.000 5.000 } [get_ports {clk_fpga}]
+create_clock -name CLOCK_50 -period 20.000 [get_ports {CLOCK_50}]
+derive_pll_clocks
 
 
 #**************************************************************
@@ -57,20 +58,20 @@ create_clock -name {clk_fpga} -period 10.000 -waveform { 0.000 5.000 } [get_port
 #**************************************************************
 # Set Clock Uncertainty
 #**************************************************************
-
+derive_clock_uncertainty
 
 
 #**************************************************************
 # Set Input Delay
 #**************************************************************
-
+set_input_delay -clock CLOCK_50 2.0 [remove_from_collection [all_inputs] [get_ports {CLOCK_50}]]
 
 
 #**************************************************************
 # Set Output Delay
 #**************************************************************
 
-
+set_output_delay -clock CLOCK_50 2.0 [all_outputs]
 
 #**************************************************************
 # Set Clock Groups
@@ -81,7 +82,8 @@ create_clock -name {clk_fpga} -period 10.000 -waveform { 0.000 5.000 } [get_port
 #**************************************************************
 # Set False Path
 #**************************************************************
-
+set_false_path -from [all_registers] -to [get_ports {LEDG[0]}]
+set_false_path -from [all_registers] -to [get_ports {SAIDA_HASH[*]}]
 
 
 #**************************************************************
