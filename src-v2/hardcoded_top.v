@@ -23,20 +23,15 @@ module hardcoded_top #(
     wire [(N+L-2):0] HARDCODED_SEED = 191'h7FFFFFFF_FFFFFFFF_FFFFFFFF_FFFFFFFF_FFFFFFFF_FFFFFFFF;
 
     // =========================================================================
-    // Registrador de Resultado Final
-    // =========================================================================
-    // Registrador de tamanho L simulando a memória externa
-    reg [L-1:0] final_result;
-
-    // =========================================================================
     // Controles de Ciclo e Linhas
     // =========================================================================
     localparam CYCLES_PER_ROW  = N / W; // 128 / 32 = 4 ciclos por linha
     localparam TOTAL_ROW_GRPS  = L / P; // 64 / 32 = 2 grupos de linhas no total
+    localparam ADDR_WIDTH      = 1;     // 1 bit de endereço para suportar 2 posições
 
     reg [1:0] delay_counter;   // Contador de atraso inicial do pipeline
     reg [1:0] hash_counter;    // Contador de ciclos internos da linha (0 a 3)
-    reg       row_group_cnt;   // Controle do grupo de linhas atual (0 a 1)
+    reg [ADDR_WIDTH-1:0] row_group_cnt; // Controle do grupo de linhas atual (0 a 1)
     reg       done_flag;
 
     // =========================================================================
@@ -73,14 +68,36 @@ module hardcoded_top #(
     );
 
     // =========================================================================
-    // Lógica de Controle e Gravação Contínua
+    // ALTSYNCRAM configurada para In-System Memory Content Editor
+    // =========================================================================
+    
+    // O pulso de escrita (Write Enable) da RAM acontece quando a linha terminou de processar
+    wire mem_we = (!done_flag && (delay_counter == 2'd2) && (hash_counter == (CYCLES_PER_ROW - 2'd1)));
+
+    altsyncram #(
+        .operation_mode("SINGLE_PORT"),
+        .width_a(P),                     // Largura da palavra: 32 bits
+        .widthad_a(ADDR_WIDTH),          // Largura do endereço: 1 bit
+        .numwords_a(TOTAL_ROW_GRPS),     // Número total de palavras: 2 posições
+        .outdata_reg_a("UNREGISTERED"),
+        .lpm_type("altsyncram"),
+        .lpm_hint("ENABLE_RUNTIME_MOD=YES,INSTANCE_NAME=RES") // Habilita e define o nome "RES" no ISMCE
+    ) result_ram (
+        .clock0 (clock),
+        .wren_a (mem_we),
+        .address_a (row_group_cnt),      // Endereço (0 ou 1)
+        .data_a (current_hash_out),      // Os 32 bits sendo salvos
+        .q_a ()                          // Deixamos desconectado (não lemos pela lógica FPGA, apenas via JTAG)
+    );
+
+    // =========================================================================
+    // Lógica de Controle
     // =========================================================================
     always @(posedge clock) begin
         if (reset) begin
             delay_counter <= 2'd0;
             hash_counter  <= 2'd0;
-            row_group_cnt <= 1'b0;
-            final_result  <= {L{1'b0}};
+            row_group_cnt <= 0;
             done_flag     <= 1'b0;
         end else if (!done_flag) begin
             
@@ -93,14 +110,14 @@ module hardcoded_top #(
                 if (hash_counter == (CYCLES_PER_ROW - 2'd1)) begin
                     hash_counter <= 2'd0;
                     
-                    // 2. Gravação do Hash pronto na posição correta da "memória"
-                    final_result[row_group_cnt * P +: P] <= current_hash_out;
+                    // A gravação na altsyncram acontece de forma transparente neste ciclo
+                    // governada pelo wire combinacional `mem_we`
                     
                     // Verifica o fim do processamento de todas as linhas
                     if (row_group_cnt == (TOTAL_ROW_GRPS - 1)) begin
                         done_flag <= 1'b1;
                     end else begin
-                        row_group_cnt <= row_group_cnt + 1'b1;
+                        row_group_cnt <= row_group_cnt + 1;
                     end
                 end else begin
                     hash_counter <= hash_counter + 2'd1;
