@@ -17,10 +17,10 @@ module hardcoded_top #(
     // =========================================================================
     
     // Chave hardcoded de N bits (128 bits todos em 1)
-    wire [N-1:0] HARDCODED_KEY = 128'hFFFFFFFF_FFFFFFFF_FFFFFFFF_FFFFFFFF;
+    wire [N-1:0] HARDCODED_KEY = 128'h2CD;
     
     // Semente hardcoded de N + L - 1 bits (191 bits)
-    wire [(N+L-2):0] HARDCODED_SEED = 191'h7FFFFFFF_FFFFFFFF_FFFFFFFF_FFFFFFFF_FFFFFFFF_FFFFFFFF;
+    wire [(N+L-2):0] HARDCODED_SEED = 191'h2A76;
 
     // =========================================================================
     // Controles de Ciclo e Linhas
