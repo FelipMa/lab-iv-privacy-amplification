@@ -2,11 +2,11 @@
 
 module top_tb();
 
-    // Parâmetros solicitados
-    parameter W = 2;
-    parameter P = 3;
-    parameter N = 10;
-    parameter L = 6;
+    // Parâmetros
+    parameter W = 32;
+    parameter P = 32;
+    parameter N = 128;
+    parameter L = 64;
 
     // Sinais do testbench
     reg clk_fpga;
@@ -27,37 +27,24 @@ module top_tb();
 
     /* =========================================================================
        DADOS HARDCODED (CHAVE E MATRIZ)
-       =========================================================================
-       Tamanho da chave (N) = 10 bits.
-       Tamanho da hash final (L) = 6 bits.
-       Matriz NxL (10x6).
+       ========================================================================= */
+    // Chave de 128 bits
+    localparam [127:0] KEY  = 128'h7F4D92B1C0E8A3549B62F10D85A7C3E9;
+    
+    // Seed de 192 bits (48 caracteres HEX). O algoritmo consumirá até N+L-1 (191 bits).
+    localparam [191:0] SEED = 192'h6A2F8B10C5D4E92A3B84F716D09E5C3B2A1F8D4E76B093C1;
 
-       A matriz de Toeplitz precisa de uma "seed" de (N + L - 1) = 15 bits.
-       
-       --- Chave Hardcoded (10 bits) ---
-       KEY = 10'b10_11_00_11_01
-       Chunks (W=2): K[1:0]=01, K[3:2]=11, K[5:4]=00, K[7:6]=11, K[9:8]=10
-
-       --- Matriz Hardcoded (Seed de 15 bits) ---
-       SEED = 15'b010_101_001_110_110
-       S[0]=0, S[1]=1, S[2]=1, S[3]=0, S[4]=1, S[5]=1, S[6]=1, S[7]=0, 
-       S[8]=0, S[9]=1, S[10]=0, S[11]=1, S[12]=0, S[13]=1, S[14]=0
-
-       Matriz 10x6 (M[linha][coluna] = S[linha + coluna]):
-       Linha 0 (S[0..9])  : 0 1 1 0 1 1 1 0 0 1
-       Linha 1 (S[1..10]) : 1 1 0 1 1 1 0 0 1 0
-       Linha 2 (S[2..11]) : 1 0 1 1 1 0 0 1 0 1
-       Linha 3 (S[3..12]) : 0 1 1 1 0 0 1 0 1 0
-       Linha 4 (S[4..13]) : 1 1 1 0 0 1 0 1 0 1
-       Linha 5 (S[5..14]) : 1 1 0 0 1 0 1 0 1 0
-
-       Resultados Esperados (H = XOR(K AND Linha)):
-       H0 = 1, H1 = 0, H2 = 1  => Batch 0 (H2, H1, H0) = 3'b101
-       H3 = 1, H4 = 0, H5 = 0  => Batch 1 (H5, H4, H3) = 3'b001
-    ========================================================================= */
-
-    localparam [9:0]  KEY  = 10'b10_11_00_11_01;
-    localparam [14:0] SEED = 15'b010_101_001_110_110;
+    // Cálculo automático do hash esperado para validação do pipeline
+    reg [L-1:0] expected_hash_full;
+    integer i, j;
+    initial begin
+        expected_hash_full = {L{1'b0}};
+        for (i = 0; i < L; i = i + 1) begin
+            for (j = 0; j < N; j = j + 1) begin
+                expected_hash_full[i] = expected_hash_full[i] ^ (KEY[j] & SEED[i + j]);
+            end
+        end
+    end
 
     // Fios para monitorar o estado interno de maneira limpa
     wire [15:0] hc = uut.hash_counter;
@@ -78,8 +65,8 @@ module top_tb();
         #25;
         rst_fpga = 0;
 
-        // Tempo suficiente para os 2 batches terminarem
-        #200;
+        // Tempo suficiente para os 2 batches terminarem (cerca de 8 a 10 clocks de processamento)
+        #300;
         $display("=== FIM DA SIMULACAO ===");
         $stop;
     end
@@ -88,17 +75,18 @@ module top_tb();
     // Atualizamos no negedge para não causar metaestabilidade nos registradores do top.v que leem no posedge
     always @(negedge clk_fpga) begin
         if (!rst_fpga) begin
-            // Detecta quando um batch de P linhas termina (hc reseta de 4 para 0)
-            if (hc_prev == 4 && hc == 0) begin
+            // Detecta quando um batch de P linhas termina
+            // Como N/W = 128/32 = 4, o contador vai de 0 a 3.
+            if (hc_prev == 3 && hc == 0) begin
                 batch_reg <= batch_reg + 1;
             end
             hc_prev <= hc;
-
-            // Força a chave para o chunk atual
-            force uut.current_key_chunk_reg = KEY[(hc * 2) +: 2];
-
-            // Força a matriz deslizando a janela corretamente
-            force uut.current_matrix_window_reg = SEED[(batch_reg * 3) + (hc * 2) +: 4];
+            
+            // Força a chave para o chunk atual (32 bits de deslocamento)
+            force uut.current_key_chunk_reg = KEY[(hc * 32) +: 32];
+            
+            // Força a matriz deslizando a janela corretamente (W+P-1 = 63 bits)
+            force uut.current_matrix_window_reg = SEED[(batch_reg * 32) + (hc * 32) +: 63];
         end
     end
 
@@ -109,24 +97,20 @@ module top_tb();
         if (!rst_fpga && hc_prev == 0 && hc == 1 && batch_reg > 0) begin
             
             if (batch_reg == 1) begin
-                $display("\nTempo: %0t | --- FIM DO BATCH 0 (Linhas 0, 1 e 2) ---", $time);
-                $display("Saida Real do Pipeline (current_hash_out) : %b", uut.current_hash_out);
-                $display("Valor Esperado                              : 3'b101");
-                
-                if (uut.current_hash_out === 3'b101) $display("-> RESULTADO: SUCESSO!");
+                $display("\nTempo: %0t | --- FIM DO BATCH 0 (Linhas 0 a 31) ---", $time);
+                $display("Saida Real do Pipeline (current_hash_out) : %h", uut.current_hash_out);
+                $display("Valor Esperado Dinâmico                   : %h", expected_hash_full[0 +: 32]);
+                if (uut.current_hash_out === expected_hash_full[0 +: 32]) $display("-> RESULTADO: SUCESSO!");
                 else $display("-> RESULTADO: FALHA!");
-                
-                $display("Valor capturado pelo hash_register        : %b", uut.hash_register);
+                $display("Valor capturado pelo hash_register        : %h", uut.hash_register);
             end
             else if (batch_reg == 2) begin
-                $display("\nTempo: %0t | --- FIM DO BATCH 1 (Linhas 3, 4 e 5) ---", $time);
-                $display("Saida Real do Pipeline (current_hash_out) : %b", uut.current_hash_out);
-                $display("Valor Esperado                              : 3'b001");
-                
-                if (uut.current_hash_out === 3'b001) $display("-> RESULTADO: SUCESSO!");
+                $display("\nTempo: %0t | --- FIM DO BATCH 1 (Linhas 32 a 63) ---", $time);
+                $display("Saida Real do Pipeline (current_hash_out) : %h", uut.current_hash_out);
+                $display("Valor Esperado Dinâmico                   : %h", expected_hash_full[32 +: 32]);
+                if (uut.current_hash_out === expected_hash_full[32 +: 32]) $display("-> RESULTADO: SUCESSO!");
                 else $display("-> RESULTADO: FALHA!");
-                
-                $display("Valor capturado pelo hash_register        : %b", uut.hash_register);
+                $display("Valor capturado pelo hash_register        : %h", uut.hash_register);
             end
         end
     end
