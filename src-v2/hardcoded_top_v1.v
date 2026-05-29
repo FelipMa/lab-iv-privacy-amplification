@@ -25,14 +25,19 @@ module hardcoded_top_v1 #(
     // =========================================================================
     // Controles de Ciclo e Linhas
     // =========================================================================
-    localparam CYCLES_PER_ROW  = N / W; // 128 / 32 = 4 ciclos por linha
-    localparam TOTAL_ROW_GRPS  = L / P; // 64 / 32 = 2 grupos de linhas no total
-    localparam ADDR_WIDTH      = 1;     // 1 bit de endereço para suportar 2 posições
+    localparam CYCLES_PER_ROW  = N / W;
+    localparam TOTAL_ROW_GRPS  = L / P;
+    localparam ADDR_WIDTH      = 1;
 
-    reg [1:0] delay_counter;   // Contador de atraso inicial do pipeline
-    reg [1:0] hash_counter;    // Contador de ciclos internos da linha (0 a 3)
-    reg [ADDR_WIDTH-1:0] row_group_cnt; // Controle do grupo de linhas atual (0 a 1)
+    reg [1:0] delay_counter;
+    reg [1:0] hash_counter;
+    reg [ADDR_WIDTH-1:0] row_group_cnt;
     reg       done_flag;
+
+    reg [1:0] capture_shift_reg;            // Atrasa o comando de escrita na RAM (wren) em 2 ciclos
+    reg [ADDR_WIDTH-1:0] row_group_delay_1; // Estágio 1 do atraso de endereço
+    reg [ADDR_WIDTH-1:0] row_group_delay_2; // Estágio 2 do atraso de endereço (vai para a RAM)
+    reg input_done;                         // Flag para avisar que a entrada encerrou
 
     // =========================================================================
     // Fios da Compression Unit
@@ -70,10 +75,6 @@ module hardcoded_top_v1 #(
     // =========================================================================
     // ALTSYNCRAM configurada para In-System Memory Content Editor
     // =========================================================================
-    
-    // O pulso de escrita (Write Enable) da RAM acontece quando a linha terminou de processar
-    wire mem_we = (!done_flag && (delay_counter == 2'd2) && (hash_counter == (CYCLES_PER_ROW - 2'd1)));
-
     altsyncram #(
         .operation_mode("SINGLE_PORT"),
         .width_a(P),                     // Largura da palavra: 32 bits
@@ -81,17 +82,17 @@ module hardcoded_top_v1 #(
         .numwords_a(TOTAL_ROW_GRPS),     // Número total de palavras: 2 posições
         .outdata_reg_a("UNREGISTERED"),
         .lpm_type("altsyncram"),
-        .lpm_hint("ENABLE_RUNTIME_MOD=YES,INSTANCE_NAME=RES") // Habilita e define o nome "RES" no ISMCE
+        .lpm_hint("ENABLE_RUNTIME_MOD=YES,INSTANCE_NAME=RES") 
     ) result_ram (
         .clock0 (clock),
-        .wren_a (mem_we),
-        .address_a (row_group_cnt),      // Endereço (0 ou 1)
-        .data_a (current_hash_out),      // Os 32 bits sendo salvos
-        .q_a ()                          // Deixamos desconectado (não lemos pela lógica FPGA, apenas via JTAG)
+        .wren_a (capture_shift_reg[1]),  // Usando o shift register de controle (2 ciclos atrasado)
+        .address_a (row_group_delay_2),  // Usando o endereço que acompanhou o pipeline
+        .data_a (current_hash_out),
+        .q_a ()
     );
 
     // =========================================================================
-    // Lógica de Controle
+    // Lógica de Controle (Pipelined para ALTSYNCRAM)
     // =========================================================================
     always @(posedge clock) begin
         if (reset) begin
@@ -99,30 +100,50 @@ module hardcoded_top_v1 #(
             hash_counter  <= 2'd0;
             row_group_cnt <= 0;
             done_flag     <= 1'b0;
+            capture_shift_reg <= 2'b00;
+            row_group_delay_1 <= 0;
+            row_group_delay_2 <= 0;
+            input_done        <= 1'b0;
         end else if (!done_flag) begin
+            // =============================================================
+            // ESTÁGIO 2 (SAÍDA): Validação da gravação na memória
+            // =============================================================
+            // A gravação real na altsyncram ocorre de forma transparente porque 
+            // capture_shift_reg[1] e row_group_delay_2 estão conectados fisicamente 
+            // nas portas da RAM. Aqui só verificamos se foi a última operação.
             
-            // O atraso só acontece uma vez no início das operações
-            if (delay_counter < 2'd2) begin
-                delay_counter <= delay_counter + 2'd1;
-            end else begin
-                
-                // 1. Controle do contador de hashes e avanço de linhas
+            if (capture_shift_reg[1]) begin
+                if (row_group_delay_2 == (TOTAL_ROW_GRPS - 1)) begin
+                    done_flag <= 1'b1;
+                end
+            end
+
+            // =============================================================
+            // ESTÁGIO 1 (ENTRADA): Alimentação do Pipeline
+            // =============================================================
+            if (!input_done) begin
+                // Alimenta os registradores de atraso
+                capture_shift_reg <= {capture_shift_reg[0], (hash_counter == (CYCLES_PER_ROW - 2'd1))};
+                row_group_delay_1 <= row_group_cnt;
+                row_group_delay_2 <= row_group_delay_1;
+
+                // Avanço dos contadores
                 if (hash_counter == (CYCLES_PER_ROW - 2'd1)) begin
-                    hash_counter <= 2'd0;
-                    
-                    // A gravação na altsyncram acontece de forma transparente neste ciclo
-                    // governada pelo wire combinacional `mem_we`
-                    
-                    // Verifica o fim do processamento de todas as linhas
                     if (row_group_cnt == (TOTAL_ROW_GRPS - 1)) begin
-                        done_flag <= 1'b1;
+                        // Para de enviar dados, mas mantém o clock rodando para esvaziar o pipeline
+                        input_done <= 1'b1; 
                     end else begin
+                        hash_counter <= 2'd0;
                         row_group_cnt <= row_group_cnt + 1;
                     end
                 end else begin
                     hash_counter <= hash_counter + 2'd1;
                 end
-                
+            end else begin
+                // Pipeline esvaziando: insere zeros no controle para não gravar lixo na RAM
+                capture_shift_reg <= {capture_shift_reg[0], 1'b0};
+                row_group_delay_1 <= 0;
+                row_group_delay_2 <= row_group_delay_1;
             end
         end
     end

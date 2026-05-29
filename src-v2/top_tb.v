@@ -92,26 +92,36 @@ module top_tb();
 
     // 2. Captura e validação dos resultados
     always @(negedge clk_fpga) begin
-        // Devido aos 2 estágios do pipeline, a acumulação final de uma linha termina 
-        // 2 ciclos após o último chunk ser alimentado (quando hc == 1 do batch seguinte).
-        if (!rst_fpga && hc_prev == 0 && hc == 1 && batch_reg > 0) begin
+        // Garante que só validamos os batches 1 e 2
+        if (!rst_fpga && batch_reg > 0 && batch_reg <= 2) begin
             
-            if (batch_reg == 1) begin
-                $display("\nTempo: %0t | --- FIM DO BATCH 0 (Linhas 0 a 31) ---", $time);
+            // =========================================================
+            // INSTANTE 1: O pipeline exibe o valor final (hc == 1)
+            // =========================================================
+            if (hc_prev == 0 && hc == 1) begin
+                $display("\nTempo: %0t | --- FIM DO BATCH %0d (Linhas %0d a %0d) ---", 
+                          $time, batch_reg - 1, (batch_reg-1)*32, (batch_reg*32)-1);
                 $display("Saida Real do Pipeline (current_hash_out) : %h", uut.current_hash_out);
-                $display("Valor Esperado Dinâmico                   : %h", expected_hash_full[0 +: 32]);
-                if (uut.current_hash_out === expected_hash_full[0 +: 32]) $display("-> RESULTADO: SUCESSO!");
-                else $display("-> RESULTADO: FALHA!");
-                $display("Valor capturado pelo hash_register        : %h", uut.hash_register);
+                $display("Valor Esperado Dinâmico                   : %h", expected_hash_full[((batch_reg-1)*32) +: 32]);
+                
+                if (uut.current_hash_out === expected_hash_full[((batch_reg-1)*32) +: 32]) 
+                    $display("-> STATUS PIPELINE    : SUCESSO!");
+                else 
+                    $display("-> STATUS PIPELINE    : FALHA!");
             end
-            else if (batch_reg == 2) begin
-                $display("\nTempo: %0t | --- FIM DO BATCH 1 (Linhas 32 a 63) ---", $time);
-                $display("Saida Real do Pipeline (current_hash_out) : %h", uut.current_hash_out);
-                $display("Valor Esperado Dinâmico                   : %h", expected_hash_full[32 +: 32]);
-                if (uut.current_hash_out === expected_hash_full[32 +: 32]) $display("-> RESULTADO: SUCESSO!");
-                else $display("-> RESULTADO: FALHA!");
+            
+            // =========================================================
+            // INSTANTE 2: O registrador gravou a saída (hc == 2)
+            // =========================================================
+            if (hc_prev == 1 && hc == 2) begin
                 $display("Valor capturado pelo hash_register        : %h", uut.hash_register);
+                
+                if (uut.hash_register === expected_hash_full[((batch_reg-1)*32) +: 32]) 
+                    $display("-> STATUS REGISTRADOR : SUCESSO!");
+                else 
+                    $display("-> STATUS REGISTRADOR : FALHA!");
             end
+            
         end
     end
 

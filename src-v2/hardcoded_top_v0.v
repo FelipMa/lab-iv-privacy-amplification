@@ -37,7 +37,11 @@ module hardcoded_top_v0 #(
     reg [1:0] delay_counter;   // Contador de atraso inicial do pipeline
     reg [1:0] hash_counter;    // Contador de ciclos internos da linha (0 a 3)
     reg       row_group_cnt;   // Controle do grupo de linhas atual (0 a 1)
-    reg       done_flag;
+    
+    reg [1:0] capture_shift_reg; // Atrasa o comando de gravar em 2 ciclos
+    reg [1:0] row_group_delay;   // Memoriza em qual linha devemos gravar daqui a 2 ciclos
+    reg       input_done;        // Flag para avisar que já enviamos tudo
+    reg       done_flag;         // Flag para avisar que já gravamos tudo
 
     // =========================================================================
     // Fios da Compression Unit
@@ -73,7 +77,7 @@ module hardcoded_top_v0 #(
     );
 
     // =========================================================================
-    // Lógica de Controle e Gravação Contínua
+    // Lógica de Controle e Gravação (Pipelined)
     // =========================================================================
     always @(posedge clock) begin
         if (reset) begin
@@ -81,31 +85,50 @@ module hardcoded_top_v0 #(
             hash_counter  <= 2'd0;
             row_group_cnt <= 1'b0;
             final_result  <= {L{1'b0}};
-            done_flag     <= 1'b0;
+            capture_shift_reg <= 2'b00;
+            row_group_delay   <= 2'b00;
+            input_done        <= 1'b0;
+            done_flag         <= 1'b0;
         end else if (!done_flag) begin
-            
-            // O atraso só acontece uma vez no início das operações
-            if (delay_counter < 2'd2) begin
-                delay_counter <= delay_counter + 2'd1;
-            end else begin
+            // =============================================================
+            // ESTÁGIO 2 (SAÍDA): Gravação (Atrasada em 2 ciclos)
+            // =============================================================
+            if (capture_shift_reg[1]) begin
+                // Grava na posição correta, usando o row_group atrasado
+                final_result[row_group_delay[1] * P +: P] <= current_hash_out;
                 
-                // 1. Controle do contador de hashes e avanço de linhas
+                // Se foi a gravação do último grupo, o processamento acabou
+                if (row_group_delay[1] == (TOTAL_ROW_GRPS - 1)) begin
+                    done_flag <= 1'b1;
+                end
+            end
+
+            // =============================================================
+            // ESTÁGIO 1 (ENTRADA): Alimentação do Pipeline
+            // =============================================================
+            if (!input_done) begin
+                // Alimenta os shift registers com os dados deste exato ciclo
+                capture_shift_reg <= {capture_shift_reg[0], (hash_counter == (CYCLES_PER_ROW - 2'd1))};
+                row_group_delay   <= {row_group_delay[0], row_group_cnt};
+
+                // Controle dos contadores de avanço
                 if (hash_counter == (CYCLES_PER_ROW - 2'd1)) begin
-                    hash_counter <= 2'd0;
-                    
-                    // 2. Gravação do Hash pronto na posição correta da "memória"
-                    final_result[row_group_cnt * P +: P] <= current_hash_out;
-                    
-                    // Verifica o fim do processamento de todas as linhas
                     if (row_group_cnt == (TOTAL_ROW_GRPS - 1)) begin
-                        done_flag <= 1'b1;
+                        // Acabaram os dados de entrada. Congelamos a alimentação e 
+                        // deixamos os ciclos rodarem para o pipeline esvaziar.
+                        input_done <= 1'b1; 
                     end else begin
+                        hash_counter <= 2'd0;
                         row_group_cnt <= row_group_cnt + 1'b1;
                     end
                 end else begin
                     hash_counter <= hash_counter + 2'd1;
                 end
-                
+            end else begin
+                // Enquanto o pipeline esvazia (input_done ativado), empurramos 0's 
+                // no controle de captura para evitar gravações fantasmas no futuro.
+                capture_shift_reg <= {capture_shift_reg[0], 1'b0};
+                row_group_delay   <= {row_group_delay[0], 1'b0}; 
             end
         end
     end

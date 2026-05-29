@@ -42,6 +42,9 @@ module top #(
     wire comp_unit_clear_acc;
     assign comp_unit_clear_acc = (hash_counter == 16'd0) ? 1'b1 : 1'b0;
 
+    // Shift register de 2 bits para atrasar o comando de captura em 2 ciclos de clock
+    reg [1:0] capture_shift_reg;
+
     // =========================================================================
     // Compression Unit
     // =========================================================================
@@ -64,25 +67,22 @@ module top #(
             hash_register <= {P{1'b0}};
             hash_counter <= 16'd0;
             delay_counter <= 2'd0;
+            capture_shift_reg <= 2'b00;
         end else begin
             
-            // Incrementa delay_counter até 2 (tempo que leva para inicialização e para o pipeline encher).
-            // Com os atuais mocks, não há tempo de inicialização
-            // (ver vídeo)
-            if (delay_counter < 2'd2) begin
-                delay_counter <= delay_counter + 2'd1;
-            end else begin
-                // 1. Controle do contador de hashes
-                if (hash_counter == (CYCLES_PER_ROW - 16'd1)) begin
-                    hash_counter <= 16'd0;
-                end else begin
-                    hash_counter <= hash_counter + 16'd1;
-                end
+            // Deslocamos o bit atual para a esquerda e inserimos a condição na posição 0.
+            capture_shift_reg <= {capture_shift_reg[0], (hash_counter == (CYCLES_PER_ROW - 16'd1))};
 
-                // 2. Gravação do Hash
-                if (hash_counter == (CYCLES_PER_ROW - 16'd1)) begin
-                    hash_register <= current_hash_out;
-                end
+            // 1. Controle do contador de hashes
+            if (hash_counter == (CYCLES_PER_ROW - 16'd1)) begin
+                hash_counter <= 16'd0;
+            end else begin
+                hash_counter <= hash_counter + 16'd1;
+            end
+
+            // 2. Gravação do Hash
+            if (capture_shift_reg[1]) begin
+                hash_register <= current_hash_out;
             end
 
             // 3. Atualização aleatória do input buffer e seed generator

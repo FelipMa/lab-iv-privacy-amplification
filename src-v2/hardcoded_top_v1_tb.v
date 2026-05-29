@@ -29,17 +29,19 @@ module hardcoded_top_v1_tb();
     always #5 clk_fpga = ~clk_fpga;
 
     // =========================================================================
-    // Monitor de Gravação da RAM (Espião)
+    // Monitor de Gravação da RAM (Espião Sincronizado com o Pipeline)
     // =========================================================================
-    // Como a altsyncram será lida por JTAG, não temos um fio de saída direto.
-    // Usamos caminhos hierárquicos (uut.sinal) para monitorar as gravações.
+    // A altsyncram grava os dados na borda de subida do clock quando wren_a está alto.
+    // Vamos imitar exatamente esse comportamento espionando os registradores de delay.
     always @(posedge clk_fpga) begin
-        if (!rst_fpga && uut.mem_we) begin
-            // Salva na nossa variável local na mesma posição que a RAM salvaria
-            tb_reconstructed_result[uut.row_group_cnt * P +: P] <= uut.current_hash_out;
+        // O write enable agora é o estágio 1 do nosso shift register
+        if (!rst_fpga && uut.capture_shift_reg[1]) begin
+            
+            // Salva na nossa variável local usando o endereço atrasado (delay_2)
+            tb_reconstructed_result[uut.row_group_delay_2 * P +: P] <= uut.current_hash_out;
             
             $display("Tempo: %0t | RAM Write -> Endereco: %0d | Dado [HEX]: %h", 
-                     $time, uut.row_group_cnt, uut.current_hash_out);
+                     $time, uut.row_group_delay_2, uut.current_hash_out);
         end
     end
 
