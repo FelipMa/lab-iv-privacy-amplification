@@ -34,7 +34,7 @@ refer to the applicable agreement for further details.
 		(line (pt 117 12)(pt 121 8))
 	)
 	(text "VCC" (rect 136 7 156 17)(font "Arial" (font_size 6)))
-	(annotation_block (location)(rect 72 304 128 328))
+	(annotation_block (location)(rect 80 344 136 368))
 )
 (pin
 	(input)
@@ -51,7 +51,7 @@ refer to the applicable agreement for further details.
 		(line (pt 117 12)(pt 121 8))
 	)
 	(text "VCC" (rect 136 7 156 17)(font "Arial" (font_size 6)))
-	(annotation_block (location)(rect 192 376 264 400))
+	(annotation_block (location)(rect 240 416 312 440))
 )
 (pin
 	(output)
@@ -101,6 +101,7 @@ refer to the applicable agreement for further details.
 		(line (pt 82 8)(pt 78 12))
 		(line (pt 78 12)(pt 82 8))
 	)
+	(annotation_block (location)(rect 1096 392 1160 416))
 )
 (symbol
 	(rect 352 304 488 384)
@@ -117,7 +118,7 @@ refer to the applicable agreement for further details.
 		(pt 136 32)
 		(output)
 		(text "c0" (rect 0 0 11 12)(font "Arial" ))
-		(text "c0" (rect 106 27 117 39)(font "Arial" ))
+		(text "c0" (rect 106 27 115 39)(font "Arial" ))
 		(line (pt 136 32)(pt 120 32))
 	)
 	(drawing
@@ -127,7 +128,7 @@ refer to the applicable agreement for further details.
 (symbol
 	(rect 640 472 824 552)
 	(text "rom_key" (rect 5 0 48 12)(font "Arial" ))
-	(text "inst6" (rect 8 64 30 81)(font "Intel Clear" ))
+	(text "inst6" (rect 8 64 31 76)(font "Arial" ))
 	(port
 		(pt 0 32)
 		(input)
@@ -146,7 +147,7 @@ refer to the applicable agreement for further details.
 		(pt 184 32)
 		(output)
 		(text "q[63..0]" (rect 0 0 37 12)(font "Arial" ))
-		(text "q[63..0]" (rect 132 27 169 39)(font "Arial" ))
+		(text "q[63..0]" (rect 132 27 163 39)(font "Arial" ))
 		(line (pt 184 32)(pt 168 32)(line_width 3))
 	)
 	(drawing
@@ -154,7 +155,7 @@ refer to the applicable agreement for further details.
 	)
 )
 (symbol
-	(rect 608 304 864 416)
+	(rect 608 304 872 416)
 	(text "top" (rect 5 0 20 12)(font "Arial" ))
 	(text "inst" (rect 8 96 25 108)(font "Arial" ))
 	(port
@@ -174,41 +175,62 @@ refer to the applicable agreement for further details.
 	(port
 		(pt 0 64)
 		(input)
-		(text "rom_key_q[63..0]" (rect 0 0 87 12)(font "Arial" ))
-		(text "rom_key_q[63..0]" (rect 21 59 108 71)(font "Arial" ))
+		(text "rom_key_q[W-1..0]" (rect 0 0 95 12)(font "Arial" ))
+		(text "rom_key_q[W-1..0]" (rect 21 59 116 71)(font "Arial" ))
 		(line (pt 0 64)(pt 16 64)(line_width 3))
 	)
 	(port
-		(pt 256 32)
+		(pt 264 32)
 		(output)
 		(text "rom_key_addr[4..0]" (rect 0 0 96 12)(font "Arial" ))
-		(text "rom_key_addr[4..0]" (rect 154 27 250 39)(font "Arial" ))
-		(line (pt 256 32)(pt 240 32)(line_width 3))
+		(text "rom_key_addr[4..0]" (rect 162 27 243 39)(font "Arial" ))
+		(line (pt 264 32)(pt 248 32)(line_width 3))
 	)
 	(port
-		(pt 256 48)
+		(pt 264 48)
 		(output)
-		(text "hash_register[31..0]" (rect 0 0 97 12)(font "Arial" ))
-		(text "hash_register[31..0]" (rect 153 43 250 55)(font "Arial" ))
-		(line (pt 256 48)(pt 240 48)(line_width 3))
+		(text "hash_register[P-1..0]" (rect 0 0 102 12)(font "Arial" ))
+		(text "hash_register[P-1..0]" (rect 157 43 243 55)(font "Arial" ))
+		(line (pt 264 48)(pt 248 48)(line_width 3))
 	)
 	(port
-		(pt 256 64)
+		(pt 264 64)
 		(output)
 		(text "batch_ready" (rect 0 0 61 12)(font "Arial" ))
-		(text "batch_ready" (rect 184 59 245 71)(font "Arial" ))
-		(line (pt 256 64)(pt 240 64))
+		(text "batch_ready" (rect 192 59 243 71)(font "Arial" ))
+		(line (pt 264 64)(pt 248 64))
 	)
 	(port
-		(pt 256 80)
+		(pt 264 80)
 		(output)
 		(text "done" (rect 0 0 23 12)(font "Arial" ))
-		(text "done" (rect 216 75 239 87)(font "Arial" ))
-		(line (pt 256 80)(pt 240 80))
+		(text "done" (rect 224 75 243 87)(font "Arial" ))
+		(line (pt 264 80)(pt 248 80))
 	)
+	(parameter
+		"N"
+		"640"
+		""
+		(type "PARAMETER_SIGNED_DEC")	)
+	(parameter
+		"W"
+		"64"
+		""
+		(type "PARAMETER_SIGNED_DEC")	)
+	(parameter
+		"P"
+		"32"
+		""
+		(type "PARAMETER_SIGNED_DEC")	)
+	(parameter
+		"L"
+		"64"
+		""
+		(type "PARAMETER_SIGNED_DEC")	)
 	(drawing
-		(rectangle (rect 16 16 240 96))
+		(rectangle (rect 16 16 248 96))
 	)
+	(annotation_block (parameter)(rect 872 208 1048 304))
 )
 (connector
 	(pt 352 336)
@@ -283,26 +305,26 @@ refer to the applicable agreement for further details.
 	(pt 608 336)
 )
 (connector
-	(pt 896 464)
+	(pt 872 336)
 	(pt 896 336)
 	(bus)
 )
 (connector
-	(pt 896 336)
-	(pt 864 336)
-	(bus)
-)
-(connector
-	(pt 864 368)
+	(pt 872 368)
 	(pt 920 368)
 )
 (connector
-	(pt 864 352)
+	(pt 872 352)
 	(pt 920 352)
 	(bus)
 )
 (connector
-	(pt 864 384)
+	(pt 896 336)
+	(pt 896 464)
+	(bus)
+)
+(connector
+	(pt 872 384)
 	(pt 920 384)
 )
 (junction (pt 536 336))

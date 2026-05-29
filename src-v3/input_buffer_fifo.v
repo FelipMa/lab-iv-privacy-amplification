@@ -15,7 +15,21 @@ module input_buffer_fifo #(
 );
 
     // Cálculo do tamanho do ponteiro (Log2 manual)
-    localparam ADDR_W = (BUF_DEPTH <= 2) ? 1 : (BUF_DEPTH <= 4) ? 2 : (BUF_DEPTH <= 8) ? 3 : 4;
+    localparam ADDR_W = (BUF_DEPTH <= 2)     ? 1 : 
+                        (BUF_DEPTH <= 4)     ? 2 : 
+                        (BUF_DEPTH <= 8)     ? 3 : 
+                        (BUF_DEPTH <= 16)    ? 4 : 
+                        (BUF_DEPTH <= 32)    ? 5 : 
+                        (BUF_DEPTH <= 64)    ? 6 : 
+                        (BUF_DEPTH <= 128)   ? 7 : 
+                        (BUF_DEPTH <= 256)   ? 8 : 
+                        (BUF_DEPTH <= 512)   ? 9 : 
+                        (BUF_DEPTH <= 1024)  ? 10 : 
+                        (BUF_DEPTH <= 2048)  ? 11 : 
+                        (BUF_DEPTH <= 4096)  ? 12 : 
+                        (BUF_DEPTH <= 8192)  ? 13 : 
+                        (BUF_DEPTH <= 16384) ? 14 : 
+                        (BUF_DEPTH <= 32768) ? 15 : 16;
 
     reg [IN_WIDTH-1:0] mem [0:BUF_DEPTH-1];
     reg [ADDR_W:0] wr_ptr, rd_ptr;
