@@ -38,7 +38,7 @@
 
 set_global_assignment -name FAMILY "Cyclone IV E"
 set_global_assignment -name DEVICE EP4CE115F29C7
-set_global_assignment -name TOP_LEVEL_ENTITY top
+set_global_assignment -name TOP_LEVEL_ENTITY "lab-iv-privacy-amplification"
 set_global_assignment -name ORIGINAL_QUARTUS_VERSION 18.1.0
 set_global_assignment -name PROJECT_CREATION_TIME_DATE "16:14:59  MAY 30, 2026"
 set_global_assignment -name LAST_QUARTUS_VERSION "20.1.1 Lite Edition"
@@ -582,12 +582,10 @@ set_location_assignment PIN_H14 -to EXT_IO[3]
 set_location_assignment PIN_F14 -to EXT_IO[4]
 set_location_assignment PIN_E10 -to EXT_IO[5]
 set_location_assignment PIN_D9 -to EXT_IO[6]
-set_global_assignment -name PARTITION_NETLIST_TYPE SOURCE -section_id Top
-set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id Top
-set_global_assignment -name PARTITION_COLOR 16764057 -section_id Top
 set_global_assignment -name EDA_TEST_BENCH_FILE tb_sistema_completo.v -section_id tb_sistema_completo
 set_global_assignment -name EDA_TEST_BENCH_FILE rom_key.v -section_id tb_sistema_completo
 set_global_assignment -name EDA_NATIVELINK_SIMULATION_SETUP_SCRIPT simulation/modelsim/wave.do -section_id eda_simulation
+set_global_assignment -name SDC_FILE "../src-v3/SDC2.sdc"
 set_global_assignment -name VERILOG_FILE ram_dump.v
 set_global_assignment -name MIF_FILE key.mif
 set_global_assignment -name VERILOG_FILE top.v
@@ -597,4 +595,9 @@ set_global_assignment -name VERILOG_FILE hash_engine.v
 set_global_assignment -name VERILOG_FILE compression_unit.v
 set_global_assignment -name VERILOG_FILE tb_sistema_completo.v
 set_global_assignment -name QIP_FILE rom_key.qip
+set_global_assignment -name BDF_FILE "lab-iv-privacy-amplification.bdf"
+set_global_assignment -name PARTITION_NETLIST_TYPE SOURCE -section_id Top
+set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id Top
+set_global_assignment -name PARTITION_COLOR 16764057 -section_id Top
+set_global_assignment -name QIP_FILE pll_150.qip
 set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_id Top
