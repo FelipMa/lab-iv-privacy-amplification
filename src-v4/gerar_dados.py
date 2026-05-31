@@ -4,15 +4,15 @@ import random
 # PARAMETRIZAÇÃO TOTAL DO PRIVACY AMPLIFICATION
 # =========================================================================
 W = 64
-P = 32
-N = 960
-L = 96
+P = 30
+N = 1000
+L = 100
 
 # =========================================================================
 # CÁLCULOS DE CONSTANTES E PROFUNDIDADES DINÂMICAS (BASE 2)
 # =========================================================================
-CYCLES = N // W  
-BATCHES = L // P 
+CYCLES = (N + W - 1) // W
+BATCHES = (L + P - 1) // P
 
 necessario_key = CYCLES
 necessario_matrix = CYCLES * BATCHES
@@ -35,8 +35,15 @@ def bits_to_bin_str(bits):
 
 def bits_to_hex_str(bits):
     bin_str = bits_to_bin_str(bits)
+    # Converte para inteiro para garantir que a string hex não tenha bits fantasma
+    val_int = int(bin_str, 2)
+    
+    # Calcula quantos caracteres hexadecimais são estritamente necessários
+    # Ex: para 93 bits, (93 + 3) // 4 = 24 caracteres
     hex_len = (len(bits) + 3) // 4
-    return f"{int(bin_str, 2):0{hex_len}X}"
+    
+    # Formata com zeros à esquerda baseando-se no número exato de caracteres
+    return f"{val_int:0{hex_len}X}"
 
 # =========================================================================
 # 1. RASTREAMENTO DETALHADO E CÁLCULO DO HASH (DEBUG LOG)
@@ -49,6 +56,10 @@ with open("debug_log.txt", "w") as log:
         acc = [0] * P
         for c in range(CYCLES):
             key_chunk = key_bits[c*W : (c+1)*W]
+
+            if len(key_chunk) < W:
+                key_chunk.extend([0] * (W - len(key_chunk)))
+                
             start_idx = b * P + c * W
             matrix_window = seed_bits[start_idx : start_idx + (W + P - 1)]
             
@@ -86,7 +97,7 @@ with open("matrix_lut.v", "w") as f:
             window = seed_bits[start_idx : start_idx + MAT_WIDTH]
             hex_val = bits_to_hex_str(window)
         else:
-            hex_val = "0"
+            hex_val = "0" * ((MAT_WIDTH + 3) // 4)
         f.write(f"            {ADDR_BITS_MATRIX}'d{i}: q <= {MAT_WIDTH}'h{hex_val};\n")
         
     f.write(f"            default: q <= {MAT_WIDTH}'h0;\n        endcase\n    end\nendmodule\n")

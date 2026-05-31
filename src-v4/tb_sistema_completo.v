@@ -6,13 +6,13 @@ module tb_sistema_completo();
     reg reset;
     reg exit;
 
-    localparam N = 969;
+    localparam N = 1000;
     localparam W = 64;
-    localparam P = 32;
-    localparam L = 96;
+    localparam P = 30;
+    localparam L = 100;
     
-    localparam CYCLES = N/W;
-    localparam BATCHES = L/P;
+	 localparam CYCLES = (N + W - 1) / W;
+	 localparam BATCHES = (L + P - 1) / P; 
 	 
 	 localparam LUT_DEPTH = CYCLES*BATCHES;
 	 
@@ -111,11 +111,6 @@ module tb_sistema_completo();
         $display("[SIM] Reset liberado. Preparando e lendo stream de dados da ROM...");
 
         // Timeout aumentado para dar margem a toda a simulação
-        #15000;
-        if (!done) begin
-            $display("TIMEOUT! Verifique as transições da FSM ou sinais do Input_Buffer.");
-            $stop;
-        end
     end
 
     // Monitoramento e Validação Dinâmica

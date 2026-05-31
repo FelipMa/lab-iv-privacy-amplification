@@ -20,8 +20,8 @@ module top #(
     output reg done
 );
 
-	 localparam CYCLES = N / W;                  
-    localparam BATCHES = L / P;
+	 localparam CYCLES = (N + W - 1) / W;
+	 localparam BATCHES = (L + P - 1) / P;
 
     reg reset_sync_0, sys_reset;
     always @(posedge clock) begin
@@ -97,8 +97,8 @@ module top #(
 	 localparam WORD_BITS = $clog2(CYCLES);
 	 localparam BATCH_BITS = $clog2(BATCHES);
 	 
-    reg [(BATCH_BITS-1):0] batch_idx;
-	 reg [(WORD_BITS-1):0] words_idx; 
+    reg [BATCH_BITS:0] batch_idx;
+	 reg [WORD_BITS:0] words_idx; 
 	 	 
     always @(posedge clock) begin
         if (sys_reset) begin
