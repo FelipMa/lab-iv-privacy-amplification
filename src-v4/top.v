@@ -5,12 +5,12 @@ module top #(
     parameter N = 640,
     parameter W = 64,
     parameter P = 32,
-    parameter L = 64
+    parameter L = 64,
+	 parameter ROM_ADDR_BITS = 5
 )(
     input wire clock,
     input wire reset,	 
-    // Interface direta com a Memória ROM Externa
-    output wire [4:0] rom_key_addr, 
+    output wire [(ROM_ADDR_BITS-1):0] rom_key_addr, 
     input wire [(W-1):0] rom_key_q,
 
     // Saídas de Controle e Resultado
@@ -21,18 +21,6 @@ module top #(
 
 	 localparam CYCLES = N / W;                  
     localparam BATCHES = L / P;
-
-	 localparam ADDR_W = (CYCLES <= 32)    ? 5 : 
-                        (CYCLES  <= 64)    ? 6 : 
-                        (CYCLES  <= 128)   ? 7 : 
-                        (CYCLES  <= 256)   ? 8 : 
-                        (CYCLES  <= 512)   ? 9 : 
-                        (CYCLES  <= 1024)  ? 10 : 
-                        (CYCLES  <= 2048)  ? 11 : 
-                        (CYCLES  <= 4096)  ? 12 : 
-                        (CYCLES  <= 8192)  ? 13 : 
-                        (CYCLES  <= 16384) ? 14 : 
-                        (CYCLES  <= 32768) ? 15 : 16;
 
     reg reset_sync_0, sys_reset;
     always @(posedge clock) begin
@@ -47,7 +35,7 @@ module top #(
 
     Input_Buffer #(
         .DEPTH(CYCLES),        
-        .ADDR_BITS(ADDR_W),         
+        .ADDR_BITS(ROM_ADDR_BITS),         
         .DATA_BITS(W),         
         .REPEAT_COUNT(BATCHES)       
     ) u_input_buffer (

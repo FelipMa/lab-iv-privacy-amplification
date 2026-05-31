@@ -4,18 +4,55 @@ module tb_sistema_completo();
 
     reg clock;
     reg reset;
-	 reg exit;
+    reg exit;
 
-    // Sinais de interconexão estrutural
-    wire [4:0]  rom_key_addr;
-    wire [63:0] rom_key_q;
+    localparam N = 640;
+    localparam W = 64;
+    localparam P = 32;
+    localparam L = 64;
     
-    wire [31:0] hash_register;
+    localparam CYCLES = N/W;
+    
+    localparam ROM_ADDR_BITS = (CYCLES <= 32)    ? 5 : 
+                               (CYCLES <= 64)    ? 6 : 
+                               (CYCLES <= 128)   ? 7 : 
+                               (CYCLES <= 256)   ? 8 : 
+                               (CYCLES <= 512)   ? 9 : 
+                               (CYCLES <= 1024)  ? 10 : 
+                               (CYCLES <= 2048)  ? 11 : 
+                               (CYCLES <= 4096)  ? 12 : 
+                               (CYCLES <= 8192)  ? 13 : 
+                               (CYCLES <= 16384) ? 14 : 
+                               (CYCLES <= 32768) ? 15 : 16;
+                               
+    localparam MEM_DEPTH = (CYCLES <= 32)    ? 32 : 
+                           (CYCLES <= 64)    ? 64: 
+                           (CYCLES <= 128)   ? 128: 
+                           (CYCLES <= 256)   ? 256: 
+                           (CYCLES <= 512)   ? 512: 
+                           (CYCLES <= 1024)  ? 1024: 
+                           (CYCLES <= 2048)  ? 2048: 
+                           (CYCLES <= 4096)  ? 4096: 
+                           (CYCLES <= 8192)  ? 8192: 
+                           (CYCLES <= 16384) ? 16384: 
+                           (CYCLES <= 32768) ? 32768 : 65536;
+
+    // Sinais de interconexão estrutural escalonáveis via parâmetros
+    wire [(ROM_ADDR_BITS-1):0] rom_key_addr;
+    wire [(W-1):0]             rom_key_q;
+    wire [(P-1):0]             hash_register;
+    
     wire batch_ready;
     wire done;
 
     // Instanciação do Bloco Top de Cálculo
-    top uut_top (
+    top #(
+        .N(N),
+        .W(W),
+        .P(P),
+        .L(L),
+        .ROM_ADDR_BITS(ROM_ADDR_BITS)
+    ) uut_top (
         .clock          (clock),
         .reset          (reset),
         .rom_key_addr   (rom_key_addr),
@@ -26,7 +63,12 @@ module tb_sistema_completo();
     );
 
     // Instanciação do módulo real da ROM (Carrega key.mif dinamicamente)
-    rom_key uut_rom_key (
+    // Se a IP do Quartus rejeitar a passagem de parâmetros, basta apagar o bloco #()
+    rom_key #(
+        .DATA_BITS(W),
+        .ADDR_BITS(ROM_ADDR_BITS),
+        .DEPTH(MEM_DEPTH)       
+    ) uut_rom_key (
         .address (rom_key_addr),
         .clock   (clock),
         .q       (rom_key_q)
@@ -45,7 +87,7 @@ module tb_sistema_completo();
         clock = 0;
         reset = 1;
         exit = 0;
-		  
+          
         // Segura o reset por alguns ciclos para estabilizar o sistema
         #20;
         reset = 0;
@@ -82,15 +124,15 @@ module tb_sistema_completo();
         end
 
         if (done) begin
-				exit <= 1;
+            exit <= 1;
         end
-		  
-		  if(exit) begin
-				$display("==================================================================");
+          
+        if(exit) begin
+            $display("==================================================================");
             $display("[SIMULACAO PA] Processamento concluído com total correspondência.");
             $display("==================================================================");
             $stop;
-		  end
+        end
     end
 
 endmodule
