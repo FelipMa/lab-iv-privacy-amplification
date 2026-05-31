@@ -108,11 +108,10 @@ always @(posedge clk or negedge rst_n) begin
                     done      <= 1'b1;
                     state     <= IDLE;
                 end else begin
-                    out_valid   <= 1'b1;
-                    valid_count <= valid_count + 1'b1;
-
+						  out_valid   <= 1'b1;
                     if (go) begin
-                        rom_addr <= next_addr;
+								valid_count <= valid_count + 1'b1;    
+								rom_addr <= next_addr;
 
                         if (next_addr == DEPTH - 1)
                             next_addr <= {ADDR_BITS{1'b0}};
