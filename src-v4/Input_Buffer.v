@@ -103,7 +103,7 @@ always @(posedge clk or negedge rst_n) begin
             RUN: begin
                 ready_to_stream <= 1'b0;
 
-                if (valid_count > TOTAL_WORDS) begin
+                if (valid_count > TOTAL_WORDS + 1) begin
                     out_valid <= 1'b0;
                     done      <= 1'b1;
                     state     <= IDLE;
@@ -111,7 +111,7 @@ always @(posedge clk or negedge rst_n) begin
                     out_valid   <= 1'b1;
                     valid_count <= valid_count + 1'b1;
 
-                    if ((valid_count < TOTAL_WORDS) && go) begin
+                    if (go) begin
                         rom_addr <= next_addr;
 
                         if (next_addr == DEPTH - 1)

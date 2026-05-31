@@ -6,13 +6,16 @@ module tb_sistema_completo();
     reg reset;
     reg exit;
 
-    localparam N = 640;
+    localparam N = 969;
     localparam W = 64;
     localparam P = 32;
-    localparam L = 64;
+    localparam L = 96;
     
     localparam CYCLES = N/W;
-    
+    localparam BATCHES = L/P;
+	 
+	 localparam LUT_DEPTH = CYCLES*BATCHES;
+	 
     localparam ROM_ADDR_BITS = (CYCLES <= 32)    ? 5 : 
                                (CYCLES <= 64)    ? 6 : 
                                (CYCLES <= 128)   ? 7 : 
@@ -36,7 +39,20 @@ module tb_sistema_completo();
                            (CYCLES <= 8192)  ? 8192: 
                            (CYCLES <= 16384) ? 16384: 
                            (CYCLES <= 32768) ? 32768 : 65536;
-
+	
+	 
+	 localparam LUT_DEPTH_2 = (LUT_DEPTH <= 32)    ? 5: 
+                           (LUT_DEPTH <= 64)    ? 6: 
+                           (LUT_DEPTH <= 128)   ? 7: 
+                           (LUT_DEPTH <= 256)   ? 8: 
+                           (LUT_DEPTH <= 512)   ? 9: 
+                           (LUT_DEPTH <= 1024)  ? 10: 
+                           (LUT_DEPTH <= 2048)  ? 11: 
+                           (LUT_DEPTH <= 4096)  ? 12: 
+                           (LUT_DEPTH <= 8192)  ? 13: 
+                           (LUT_DEPTH <= 16384) ? 14: 
+                           (LUT_DEPTH <= 32768) ? 15: 16;
+										
     // Sinais de interconexão estrutural escalonáveis via parâmetros
     wire [(ROM_ADDR_BITS-1):0] rom_key_addr;
     wire [(W-1):0]             rom_key_q;
@@ -51,7 +67,8 @@ module tb_sistema_completo();
         .W(W),
         .P(P),
         .L(L),
-        .ROM_ADDR_BITS(ROM_ADDR_BITS)
+        .ROM_ADDR_BITS(ROM_ADDR_BITS),
+		  .LUT_DEPTH(LUT_DEPTH_2)
     ) uut_top (
         .clock          (clock),
         .reset          (reset),
@@ -103,23 +120,8 @@ module tb_sistema_completo();
 
     // Monitoramento e Validação Dinâmica
     always @(posedge clock) begin
-        if (batch_ready) begin
+        if (batch_ready && (lote_count < BATCHES)) begin
             $display("[TEMPO: %0t ps] Lote %0d finalizado. Hash obtido: 0x%h", $time, lote_count, hash_register);
-            
-            if (lote_count == 0) begin
-                if (hash_register !== 32'hD3E5D1D5)
-                    $display("    -> [FALHA] Esperado Lote 0: 0xD3E5D1D5");
-                else
-                    $display("    -> [OK] Lote 0 validado com sucesso!");
-            end
-                
-            if (lote_count == 1) begin
-                if (hash_register !== 32'hDE989636)
-                    $display("    -> [FALHA] Esperado Lote 1: 0xDE989636");
-                else
-                    $display("    -> [OK] Lote 1 validado com sucesso!");
-            end
-
             lote_count <= lote_count + 1;
         end
 

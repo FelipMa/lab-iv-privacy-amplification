@@ -6,7 +6,8 @@ module top #(
     parameter W = 64,
     parameter P = 32,
     parameter L = 64,
-	 parameter ROM_ADDR_BITS = 5
+	 parameter ROM_ADDR_BITS = 5,
+	 parameter LUT_DEPTH = 5
 )(
     input wire clock,
     input wire reset,	 
@@ -51,8 +52,10 @@ module top #(
         .ready_to_stream(buf_ready),
         .done(buf_done)
     );
+	 
+	 
 
-    reg [4:0] matrix_addr_reg;
+    reg [(LUT_DEPTH-1):0] matrix_addr_reg;
     wire [(W+P-2):0] current_matrix_window;
 
     matrix_lut u_matrix_lut(
@@ -135,7 +138,7 @@ module top #(
 							buf_go <= 1;
 						end			
 						
-						if(batch_idx && (words_idx == 0)) begin
+						if(batch_idx && (words_idx == 1)) begin
 							hash_register <= current_hash_out;
 							batch_ready <= 1;
 						end
@@ -144,7 +147,7 @@ module top #(
 					S_BATCH_DONE: begin
 						if (batch_idx < BATCHES - 1) begin
 							batch_idx <= batch_idx + 1;
-							words_idx <= 0;
+							words_idx <= 1;
 							clear_acc <= 1;
 							buf_go <= 1;
 							matrix_addr_reg <= matrix_addr_reg + 1;
