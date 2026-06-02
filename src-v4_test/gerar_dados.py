@@ -4,9 +4,9 @@ import random
 # PARAMETRIZAÇÃO TOTAL DO PRIVACY AMPLIFICATION
 # =========================================================================
 W = 64
-P = 30
-N = 1000
-L = 100
+P = 32
+N = 640
+L = 64
 
 # =========================================================================
 # CÁLCULOS DE CONSTANTES E PROFUNDIDADES DINÂMICAS (BASE 2)

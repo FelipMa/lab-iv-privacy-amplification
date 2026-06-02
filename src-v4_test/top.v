@@ -7,14 +7,11 @@ module top #(
     parameter P = 32,
     parameter L = 64,
     parameter ROM_ADDR_BITS = 5,
-    parameter LUT_DEPTH = 5
+    parameter LUT_DEPTH = 5,
+	 parameter MEM_DEPTH = 32
 )(
     input wire clock,
     input wire reset,     
-    output wire [(ROM_ADDR_BITS-1):0] rom_key_addr, 
-    input wire [(W-1):0] rom_key_q,
-
-    // Saídas de Controle e Resultado
     output reg [(P-1):0] hash_register,
     output reg batch_ready, 
     output reg done
@@ -29,6 +26,9 @@ module top #(
         sys_reset    <= reset_sync_0;
     end             
 
+	 wire [(ROM_ADDR_BITS-1):0] rom_key_addr;
+	 wire [(W-1):0] rom_key_q;
+	 
     wire buf_ready, buf_out_valid, buf_done;
     wire [(W-1):0] buf_out_data;
     
@@ -62,6 +62,18 @@ module top #(
         .address(matrix_addr_reg),
         .q(current_matrix_window)
     );
+	 
+	 
+	 rom_key #(
+        .DATA_BITS(W),
+        .ADDR_BITS(ROM_ADDR_BITS),
+        .DEPTH(MEM_DEPTH)       
+    ) uut_rom_key (
+        .address (rom_key_addr),
+        .clock   (clock),
+        .q       (rom_key_q)
+    );
+	 
 
     reg clear_acc, enable;
  
