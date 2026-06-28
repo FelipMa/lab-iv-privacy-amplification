@@ -1,20 +1,28 @@
 `timescale 1ns/1ps
 
 module aes128_tb;
+
     reg         clk;
     reg         reset_n;
-    reg         start;
-    reg [127:0] key;
-    reg [127:0] plaintext;
 
-    wire [127:0] ciphertext;
+    reg         input_valid;
+    reg [127:0] input_block;
+    wire        input_ready;
+
+    reg [127:0] key;
+
+    wire [127:0] output_block;
+    wire         output_valid;
     wire         busy;
-    wire         done;
 
     integer r;
     integer errors;
     integer aes_cycles;
     integer aes_edges_including_start;
+    integer edge_count;
+    integer edge_at_start;
+
+    localparam TB_ST_ROUND_COMMIT = 2'd2;
 
     reg [127:0] start_round      [0:10];
     reg [127:0] after_subbytes   [1:10];
@@ -31,20 +39,31 @@ module aes128_tb;
     reg [127:0] exp_after_addroundkey[0:10];
     reg [127:0] exp_ciphertext;
 
-    aes128_encrypt dut (
-        .clock(clk),
-        .reset_n(reset_n),
-        .start(start),
-        .key(key),
-        .plaintext(plaintext),
-        .ciphertext(ciphertext),
-        .busy(busy),
-        .done(done)
+    AES dut (
+        .clock        (clk),
+        .reset_n      (reset_n),
+
+        .input_valid  (input_valid),
+        .input_block  (input_block),
+        .input_ready  (input_ready),
+
+        .key          (key),
+
+        .output_block (output_block),
+        .output_valid (output_valid),
+        .busy         (busy)
     );
 
     initial begin
         clk = 1'b0;
         forever #5 clk = ~clk;
+    end
+
+    always @(posedge clk) begin
+        if (!reset_n)
+            edge_count = 0;
+        else
+            edge_count = edge_count + 1;
     end
 
     task check128;
@@ -65,9 +84,11 @@ module aes128_tb;
         errors = 0;
         aes_cycles = 0;
         aes_edges_including_start = 0;
+        edge_count = 0;
+        edge_at_start = 0;
 
-        key       = 128'h2b7e151628aed2a6abf7158809cf4f3c;
-        plaintext = 128'h3243f6a8885a308d313198a2e0370734;
+        key         = 128'h2b7e151628aed2a6abf7158809cf4f3c;
+        input_block = 128'h3243f6a8885a308d313198a2e0370734;
 
         exp_ciphertext = 128'h3925841d02dc09fbdc118597196a0b32;
 
@@ -145,69 +166,87 @@ module aes128_tb;
         exp_after_shiftrows[10]   = 128'he9317db5cb322c723d2e895faf090794;
         exp_after_addroundkey[10] = 128'h3925841d02dc09fbdc118597196a0b32;
 
-        reset_n = 1'b0;
-        start   = 1'b0;
+        reset_n     = 1'b0;
+        input_valid = 1'b0;
+
         repeat (3) @(posedge clk);
         reset_n = 1'b1;
 
+        // Apresenta o bloco de entrada quando o AES está pronto.
         @(negedge clk);
-        start = 1'b1;
-        @(negedge clk);
-        start = 1'b0;
+        input_valid = 1'b1;
 
+        @(posedge clk);
         #1;
-        aes_cycles = 0;
-        aes_edges_including_start = 1; 
+        edge_at_start = edge_count;
 
-        start_round[0]       = plaintext;
+        @(negedge clk);
+        input_valid = 1'b0;
+
+        start_round[0]       = input_block;
         round_key_value[0]   = key;
-        after_addroundkey[0] = plaintext ^ key;
+        after_addroundkey[0] = input_block ^ key;
 
         check128("input", start_round[0], exp_start_round[0]);
         check128("round_key[0]", round_key_value[0], exp_round_key_value[0]);
         check128("after_addroundkey[0]", after_addroundkey[0], exp_after_addroundkey[0]);
 
         for (r = 1; r <= 10; r = r + 1) begin
-            start_round[r]     = dut.state;
-            after_subbytes[r]  = dut.SubBytes(dut.state);
-            after_shiftrows[r] = dut.ShiftRows(after_subbytes[r]);
-            round_key_value[r] = dut.next_round_key;
+
+            // No estado ROUND_COMMIT os dados da S-box já chegaram das ROMs.
+            wait (dut.fsm == TB_ST_ROUND_COMMIT);
+            #1;
+
+            start_round[r]      = dut.state;
+            after_subbytes[r]   = dut.sub_state;
+            after_shiftrows[r]  = dut.shifted_state;
+            round_key_value[r]  = dut.next_round_key;
 
             if (r < 10) begin
                 after_mixcolumns[r]  = dut.MixColumns(after_shiftrows[r]);
-                after_addroundkey[r] = after_mixcolumns[r] ^ round_key_value[r];
+                after_addroundkey[r] = dut.middle_round_state;
             end else begin
-                after_addroundkey[r] = after_shiftrows[r] ^ round_key_value[r];
+                after_addroundkey[r] = dut.final_round_state;
             end
 
             $display("\nROUND %0d", r);
-            check128("start_round",      start_round[r],      exp_start_round[r]);
-            check128("after_subbytes",   after_subbytes[r],   exp_after_subbytes[r]);
-            check128("after_shiftrows",  after_shiftrows[r],  exp_after_shiftrows[r]);
+
+            check128("start_round",       start_round[r],       exp_start_round[r]);
+            check128("after_subbytes",    after_subbytes[r],    exp_after_subbytes[r]);
+            check128("after_shiftrows",   after_shiftrows[r],   exp_after_shiftrows[r]);
+
             if (r < 10) begin
                 check128("after_mixcolumns", after_mixcolumns[r], exp_after_mixcolumns[r]);
             end
-            check128("round_key",        round_key_value[r],  exp_round_key_value[r]);
-            check128("after_addroundkey",after_addroundkey[r],exp_after_addroundkey[r]);
+
+            check128("round_key",         round_key_value[r],   exp_round_key_value[r]);
+            check128("after_addroundkey", after_addroundkey[r], exp_after_addroundkey[r]);
 
             @(posedge clk);
-            aes_cycles = aes_cycles + 1;
-            aes_edges_including_start = aes_edges_including_start + 1;
             #1;
         end
 
-        check128("ciphertext final", ciphertext, exp_ciphertext);
+        check128("ciphertext final", output_block, exp_ciphertext);
 
-        if (done !== 1'b1) begin
-            $display("ERRO   done nao ficou em 1 no final da rodada 10");
+        if (output_valid !== 1'b1) begin
+            $display("ERRO   output_valid nao ficou em 1 no final da rodada 10");
             errors = errors + 1;
         end else begin
-            $display("OK     done ficou em 1 no final da rodada 10");
+            $display("OK     output_valid ficou em 1 no final da rodada 10");
         end
 
+        aes_cycles = edge_count - edge_at_start;
+        aes_edges_including_start = aes_cycles + 1;
+
         $display("\nTEMPO DO AES");
-        $display("Ciclos entre o start aceito e o done: %0d", aes_cycles);
-        $display("Bordas de clock ativas incluindo a borda que capturou start: %0d", aes_edges_including_start);
+        $display("Ciclos entre input_block aceito e output_valid: %0d", aes_cycles);
+        $display("Bordas de clock ativas incluindo a borda que capturou input_block: %0d", aes_edges_including_start);
+
+        if (aes_cycles !== 20) begin
+            $display("AVISO  Esperava-se 20 ciclos apos o bloco ser aceito nesta arquitetura M9K10.");
+        end else begin
+            $display("OK     Latencia bateu com 20 ciclos apos o bloco ser aceito.");
+        end
 
         if (errors == 0) begin
             $display("\nTESTE CONCLUIDO: todos os valores batem com o exemplo AES.");
@@ -217,4 +256,5 @@ module aes128_tb;
 
         $finish;
     end
+
 endmodule
