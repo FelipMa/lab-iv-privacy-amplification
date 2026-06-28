@@ -6,10 +6,10 @@ module tb_sistema_completo();
     reg reset;
     reg exit;
 
-    localparam N = 1000;
+    localparam N = 640;
     localparam W = 64;
-    localparam P = 30;
-    localparam L = 100;
+    localparam P = 32;
+    localparam L = 64;
     
 	 localparam CYCLES = (N + W - 1) / W;
 	 localparam BATCHES = (L + P - 1) / P; 
@@ -54,8 +54,6 @@ module tb_sistema_completo();
                            (LUT_DEPTH <= 32768) ? 15: 16;
 										
     // Sinais de interconexão estrutural escalonáveis via parâmetros
-    wire [(ROM_ADDR_BITS-1):0] rom_key_addr;
-    wire [(W-1):0]             rom_key_q;
     wire [(P-1):0]             hash_register;
     
     wire batch_ready;
@@ -68,27 +66,14 @@ module tb_sistema_completo();
         .P(P),
         .L(L),
         .ROM_ADDR_BITS(ROM_ADDR_BITS),
-		  .LUT_DEPTH(LUT_DEPTH_2)
+		  .LUT_DEPTH(LUT_DEPTH_2),
+		  .MEM_DEPTH(MEM_DEPTH)
     ) uut_top (
         .clock          (clock),
         .reset          (reset),
-        .rom_key_addr   (rom_key_addr),
-        .rom_key_q      (rom_key_q),
         .hash_register  (hash_register),
         .batch_ready    (batch_ready),
         .done           (done)
-    );
-
-    // Instanciação do módulo real da ROM (Carrega key.mif dinamicamente)
-    // Se a IP do Quartus rejeitar a passagem de parâmetros, basta apagar o bloco #()
-    rom_key #(
-        .DATA_BITS(W),
-        .ADDR_BITS(ROM_ADDR_BITS),
-        .DEPTH(MEM_DEPTH)       
-    ) uut_rom_key (
-        .address (rom_key_addr),
-        .clock   (clock),
-        .q       (rom_key_q)
     );
 
     // Período correspondente a 150 MHz

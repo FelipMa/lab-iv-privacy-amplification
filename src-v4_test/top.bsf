@@ -4,9 +4,9 @@ editor if you plan to continue editing the block that represents it in
 the Block Editor! File corruption is VERY likely to occur.
 */
 /*
-Copyright (C) 2020  Intel Corporation. All rights reserved.
+Copyright (C) 2018  Intel Corporation. All rights reserved.
 Your use of Intel Corporation's design tools, logic functions 
-and other software and tools, and any partner logic 
+and other software and tools, and its AMPP partner logic 
 functions, and any output files from any of the foregoing 
 (including device programming or simulation files), and any 
 associated documentation or information are expressly subject 
@@ -16,12 +16,11 @@ the Intel FPGA IP License Agreement, or other applicable license
 agreement, including, without limitation, that your use is for
 the sole purpose of programming logic devices manufactured by
 Intel and sold by Intel or its authorized distributors.  Please
-refer to the applicable agreement for further details, at
-https://fpgasoftware.intel.com/eula.
+refer to the applicable agreement for further details.
 */
 (header "symbol" (version "1.1"))
 (symbol
-	(rect 16 16 368 128)
+	(rect 16 16 216 128)
 	(text "top" (rect 5 0 16 12)(font "Arial" ))
 	(text "inst" (rect 8 96 20 108)(font "Arial" ))
 	(port
@@ -39,39 +38,25 @@ https://fpgasoftware.intel.com/eula.
 		(line (pt 0 48)(pt 16 48)(line_width 1))
 	)
 	(port
-		(pt 0 64)
-		(input)
-		(text "rom_key_q[W-1..0]" (rect 0 0 80 12)(font "Arial" ))
-		(text "rom_key_q[W-1..0]" (rect 21 59 101 71)(font "Arial" ))
-		(line (pt 0 64)(pt 16 64)(line_width 3))
-	)
-	(port
-		(pt 352 32)
-		(output)
-		(text "rom_key_addr[ROM_ADDR_BITS-1..0]" (rect 0 0 168 12)(font "Arial" ))
-		(text "rom_key_addr[ROM_ADDR_BITS-1..0]" (rect 163 27 331 39)(font "Arial" ))
-		(line (pt 352 32)(pt 336 32)(line_width 3))
-	)
-	(port
-		(pt 352 48)
+		(pt 200 32)
 		(output)
 		(text "hash_register[P-1..0]" (rect 0 0 81 12)(font "Arial" ))
-		(text "hash_register[P-1..0]" (rect 250 43 331 55)(font "Arial" ))
-		(line (pt 352 48)(pt 336 48)(line_width 3))
+		(text "hash_register[P-1..0]" (rect 98 27 179 39)(font "Arial" ))
+		(line (pt 200 32)(pt 184 32)(line_width 3))
 	)
 	(port
-		(pt 352 64)
+		(pt 200 48)
 		(output)
 		(text "batch_ready" (rect 0 0 50 12)(font "Arial" ))
-		(text "batch_ready" (rect 281 59 331 71)(font "Arial" ))
-		(line (pt 352 64)(pt 336 64)(line_width 1))
+		(text "batch_ready" (rect 129 43 179 55)(font "Arial" ))
+		(line (pt 200 48)(pt 184 48)(line_width 1))
 	)
 	(port
-		(pt 352 80)
+		(pt 200 64)
 		(output)
 		(text "done" (rect 0 0 18 12)(font "Arial" ))
-		(text "done" (rect 313 75 331 87)(font "Arial" ))
-		(line (pt 352 80)(pt 336 80)(line_width 1))
+		(text "done" (rect 161 59 179 71)(font "Arial" ))
+		(line (pt 200 64)(pt 184 64)(line_width 1))
 	)
 	(parameter
 		"N"
@@ -103,8 +88,13 @@ https://fpgasoftware.intel.com/eula.
 		"5"
 		""
 		(type "PARAMETER_SIGNED_DEC")	)
+	(parameter
+		"MEM_DEPTH"
+		"32"
+		""
+		(type "PARAMETER_SIGNED_DEC")	)
 	(drawing
-		(rectangle (rect 16 16 336 96)(line_width 1))
+		(rectangle (rect 16 16 184 96)(line_width 1))
 	)
-	(annotation_block (parameter)(rect 368 -64 468 16))
+	(annotation_block (parameter)(rect 216 -64 316 16))
 )
