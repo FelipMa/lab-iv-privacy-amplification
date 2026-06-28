@@ -1,9 +1,4 @@
 `timescale 1ns/1ps
-
-// AES-128 CTR wrapper.
-// For each input block, it encrypts {nonce[95:0], counter[31:0]}
-// and XORs the resulting keystream with plaintext.
-// byte_enable[15] controls plaintext[127:120]; byte_enable[0] controls plaintext[7:0].
 module aes128_ctr (
     input  wire         clk,
     input  wire         reset_n,
