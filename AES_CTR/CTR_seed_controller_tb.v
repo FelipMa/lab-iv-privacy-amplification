@@ -4,11 +4,13 @@ module CTR_seed_controller_tb;
 
     reg         clk;
     reg         reset_n;
-    reg         start;
+
+    reg         counter_load_valid;
+    reg [31:0]  counter_load_value;
+    wire        counter_load_ready;
 
     reg [127:0] key;
     reg [95:0]  nonce;
-    reg [31:0]  initial_counter;
 
     wire [127:0] seed_block;
     wire         seed_valid;
@@ -21,28 +23,39 @@ module CTR_seed_controller_tb;
     wire         counter_accepted_valid;
     wire [31:0]  counter_accepted;
 
-    localparam NUM_BLOCKS = 3;
-    localparam EXPECTED_LATENCY = 20;
+    wire [31:0]  next_counter_debug;
+    wire         aes_input_ready_debug;
+
+    localparam [31:0] STEP = 32'd4;
+    localparam integer EXPECTED_LATENCY = 20;
+    localparam integer NUM_EXPECTED = 4;
 
     integer errors;
     integer cycle_count;
-    integer recv_count;
+    integer output_count;
+    integer i;
     integer idx;
 
-    integer accept_cycle [0:NUM_BLOCKS-1];
-    integer output_cycle [0:NUM_BLOCKS-1];
+    integer accept_cycle [0:NUM_EXPECTED-1];
+    integer output_cycle [0:NUM_EXPECTED-1];
 
-    reg [31:0]  exp_counter [0:NUM_BLOCKS-1];
-    reg [127:0] exp_seed    [0:NUM_BLOCKS-1];
+    reg [31:0]  exp_counter [0:NUM_EXPECTED-1];
+    reg [127:0] exp_seed    [0:NUM_EXPECTED-1];
 
-    CTR_seed_controller dut (
+    reg reload_done;
+
+    CTR_seed_controller #(
+        .COUNTER_STEP(STEP)
+    ) dut (
         .clock                  (clk),
         .reset_n                (reset_n),
-        .start                  (start),
+
+        .counter_load_valid     (counter_load_valid),
+        .counter_load_value     (counter_load_value),
+        .counter_load_ready     (counter_load_ready),
 
         .key                    (key),
         .nonce                  (nonce),
-        .initial_counter         (initial_counter),
 
         .seed_block             (seed_block),
         .seed_valid             (seed_valid),
@@ -53,7 +66,10 @@ module CTR_seed_controller_tb;
         .generated_blocks       (generated_blocks),
 
         .counter_accepted_valid (counter_accepted_valid),
-        .counter_accepted       (counter_accepted)
+        .counter_accepted       (counter_accepted),
+
+        .next_counter_debug     (next_counter_debug),
+        .aes_input_ready_debug  (aes_input_ready_debug)
     );
 
     initial begin
@@ -103,102 +119,155 @@ module CTR_seed_controller_tb;
         end
     endtask
 
-    initial begin
-        errors = 0;
-        cycle_count = 0;
-        recv_count = 0;
+    function integer find_counter_index;
+        input [31:0] counter;
+        integer k;
+        begin
+            find_counter_index = -1;
+            for (k = 0; k < NUM_EXPECTED; k = k + 1) begin
+                if (counter == exp_counter[k]) begin
+                    find_counter_index = k;
+                end
+            end
+        end
+    endfunction
 
-        accept_cycle[0] = -1;
-        accept_cycle[1] = -1;
-        accept_cycle[2] = -1;
-        output_cycle[0] = -1;
-        output_cycle[1] = -1;
-        output_cycle[2] = -1;
+    // Monitor principal.
+    always @(posedge clk) begin
+        #1;
 
-        // Vetores CTR do NIST SP 800-38A.
-        // seed = AES_K(nonce || counter)
-        key             = 128'h2b7e151628aed2a6abf7158809cf4f3c;
-        nonce           = 96'hf0f1f2f3f4f5f6f7f8f9fafb;
-        initial_counter = 32'hfcfdfeff;
-
-        exp_counter[0] = 32'hfcfdfeff;
-        exp_counter[1] = 32'hfcfdff00;
-        exp_counter[2] = 32'hfcfdff01;
-
-        exp_seed[0] = 128'hec8cdf7398607cb0f2d21675ea9ea1e4;
-        exp_seed[1] = 128'h362b7c3c6773516318a077d7fc5073ae;
-        exp_seed[2] = 128'h6a2cc3787889374fbeb4c81b17ba6c44;
-
-        reset_n = 1'b0;
-        start   = 1'b0;
-
-        repeat (5) @(posedge clk);
-        reset_n = 1'b1;
-
-        @(negedge clk);
-        start = 1'b1;
-        @(negedge clk);
-        start = 1'b0;
-
-        while (recv_count < NUM_BLOCKS) begin
-            @(posedge clk);
-            #1;
+        if (reset_n) begin
             cycle_count = cycle_count + 1;
 
             if (counter_accepted_valid) begin
-                idx = counter_accepted - initial_counter;
+                idx = find_counter_index(counter_accepted);
 
                 $display("\nCOUNTER ACEITO no ciclo %0d: %08h", cycle_count, counter_accepted);
 
-                if (idx >= 0 && idx < NUM_BLOCKS) begin
+                if (idx >= 0) begin
                     accept_cycle[idx] = cycle_count;
                     check32("counter aceito", counter_accepted, exp_counter[idx]);
+                end else begin
+                    $display("AVISO  counter aceito fora da lista verificada: %08h", counter_accepted);
                 end
             end
 
             if (seed_valid) begin
-                idx = seed_counter - initial_counter;
-                output_cycle[idx] = cycle_count;
+                idx = find_counter_index(seed_counter);
 
-                $display("\nSEED GERADA %0d no ciclo %0d", idx, cycle_count);
-                check32 ("seed_counter", seed_counter, exp_counter[idx]);
-                check128("seed_block", seed_block, exp_seed[idx]);
+                $display("\nSEED GERADA no ciclo %0d para counter %08h", cycle_count, seed_counter);
 
-                if (accept_cycle[idx] < 0) begin
-                    $display("ERRO   seed gerada antes do counter correspondente ser aceito");
-                    errors = errors + 1;
+                if (idx >= 0) begin
+                    output_cycle[idx] = cycle_count;
+
+                    check32 ("seed_counter", seed_counter, exp_counter[idx]);
+                    check128("seed_block", seed_block, exp_seed[idx]);
+
+                    if (accept_cycle[idx] >= 0) begin
+                        check_integer("latencia counter->seed",
+                                      output_cycle[idx] - accept_cycle[idx],
+                                      EXPECTED_LATENCY);
+                    end else begin
+                        $display("ERRO   seed saiu antes do counter correspondente ser aceito");
+                        errors = errors + 1;
+                    end
+
+                    output_count = output_count + 1;
                 end else begin
-                    check_integer("latencia counter->seed",
-                                  output_cycle[idx] - accept_cycle[idx],
-                                  EXPECTED_LATENCY);
+                    $display("AVISO  seed de counter nao verificado neste TB: %08h", seed_counter);
                 end
-
-                if (idx > 0) begin
-                    check_integer("intervalo entre seeds",
-                                  output_cycle[idx] - output_cycle[idx-1],
-                                  EXPECTED_LATENCY);
-                end
-
-                recv_count = recv_count + 1;
             end
         end
+    end
+
+    initial begin
+        errors = 0;
+        cycle_count = 0;
+        output_count = 0;
+        reload_done = 0;
+
+        for (i = 0; i < NUM_EXPECTED; i = i + 1) begin
+            accept_cycle[i] = -1;
+            output_cycle[i] = -1;
+        end
+
+        key   = 128'h2b7e151628aed2a6abf7158809cf4f3c;
+        nonce = 96'hf0f1f2f3f4f5f6f7f8f9fafb;
+
+        // Teste com STEP = 4.
+        //
+        // Primeiro carregamos fcfdfeff.
+        // Com step 4, o proximo seria fcfdff03.
+        //
+        // Depois que a primeira seed sai, fazemos reload para fcfdff00
+        // enquanto o AES processa fcfdff03.
+        //
+        // Sequencia esperada de saidas:
+        //   fcfdfeff
+        //   fcfdff03
+        //   fcfdff00
+        //   fcfdff04
+
+        exp_counter[0] = 32'hfcfdfeff;
+        exp_counter[1] = 32'hfcfdff03;
+        exp_counter[2] = 32'hfcfdff00;
+        exp_counter[3] = 32'hfcfdff04;
+
+        exp_seed[0] = 128'hec8cdf7398607cb0f2d21675ea9ea1e4;
+        exp_seed[1] = 128'hb00d47f8148a910ef0683097904ba502;
+        exp_seed[2] = 128'h362b7c3c6773516318a077d7fc5073ae;
+        exp_seed[3] = 128'h5899445a4de101f513cad1987d89e91b;
+
+        reset_n = 1'b0;
+        counter_load_valid = 1'b0;
+        counter_load_value = 32'd0;
+
+        repeat (5) @(posedge clk);
+        reset_n = 1'b1;
+
+        // Carrega o primeiro contador.
+        @(negedge clk);
+        counter_load_value = 32'hfcfdfeff;
+        counter_load_valid = 1'b1;
+
+        @(negedge clk);
+        counter_load_valid = 1'b0;
+
+        // Espera a primeira seed e entao reposiciona para fcfdff00.
+        // Isso demonstra que o counter pode ser alterado por input.
+        wait (seed_valid && seed_counter == 32'hfcfdfeff);
+
+        @(negedge clk);
+        counter_load_value = 32'hfcfdff00;
+        counter_load_valid = 1'b1;
+        reload_done = 1'b1;
+
+        @(negedge clk);
+        counter_load_valid = 1'b0;
+
+        wait (output_count >= NUM_EXPECTED);
 
         $display("\nRESUMO");
-        $display("Counter 0 aceito no ciclo: %0d", accept_cycle[0]);
-        $display("Seed 0 gerada no ciclo:    %0d", output_cycle[0]);
-        $display("Counter 1 aceito no ciclo: %0d", accept_cycle[1]);
-        $display("Seed 1 gerada no ciclo:    %0d", output_cycle[1]);
-        $display("Counter 2 aceito no ciclo: %0d", accept_cycle[2]);
-        $display("Seed 2 gerada no ciclo:    %0d", output_cycle[2]);
+        $display("COUNTER_STEP configurado: %0d", STEP);
+        $display("Sequencia verificada:");
+        $display("  %08h", exp_counter[0]);
+        $display("  %08h", exp_counter[1]);
+        $display("  %08h", exp_counter[2]);
+        $display("  %08h", exp_counter[3]);
 
-        check_integer("tempo total counter0->seed2",
-                      output_cycle[2] - accept_cycle[0],
-                      NUM_BLOCKS * EXPECTED_LATENCY);
+        $display("\nCiclos:");
+        for (i = 0; i < NUM_EXPECTED; i = i + 1) begin
+            $display("counter %08h aceito=%0d seed=%0d latencia=%0d",
+                     exp_counter[i],
+                     accept_cycle[i],
+                     output_cycle[i],
+                     output_cycle[i] - accept_cycle[i]);
+        end
 
         if (errors == 0) begin
-            $display("\nTESTE CTR SEED CONTROLLER CONCLUIDO: dados e tempos batem.");
+            $display("\nTESTE CTR CONTROLLER CONCLUIDO: dados e tempos batem.");
         end else begin
-            $display("\nTESTE CTR SEED CONTROLLER CONCLUIDO COM %0d ERRO(S).", errors);
+            $display("\nTESTE CTR CONTROLLER CONCLUIDO COM %0d ERRO(S).", errors);
         end
 
         $finish;
