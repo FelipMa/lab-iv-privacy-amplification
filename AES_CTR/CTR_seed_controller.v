@@ -119,10 +119,10 @@ module CTR_seed_controller #(
 
             // 
             // Se o AES vai produzir uma seed nesta borda, o contador
-            // correspondente e o inflight_counter antigo.
+            // correspondente ehh o inflight_counter antigo.
             //
             // no mesmo clock, o AES tambem pode aceitar um novo bloco.
-            // Por isso seed_counter e atualizado ANTES, conceitualmente,
+            // Por isso seed_counter eh atualizado ANTES, conceitualmente,
             // de inflight_counter passar a representar o novo bloco.
             // Como usamos atribuicoes nao bloqueantes, ambas usam os
             // valores antigos corretamente.
