@@ -111,6 +111,52 @@ def gerar_stream_aes_ctr(seed_key_int, seed_nonce_int, nbits):
     return stream_bits[:nbits]
 
 
+def escrever_configuracao(log, *, N, L, W, P, cycles, batches, win,
+                          rom_depth_key, seed, seed_key_int, seed_nonce_int,
+                          debug_enabled):
+    """
+    Escreve somente as informações fixas de configuração da execução.
+
+    Esta seção sempre é gravada, independentemente de o debug passo a passo
+    estar ativado ou não.
+    """
+
+    log.write("============================================================\n")
+    log.write("PRIVACY AMPLIFICATION - AES-128 CTR SEED GENERATOR\n")
+    log.write("============================================================\n")
+    log.write(f"DEBUG_PASSO_A_PASSO={int(debug_enabled)}\n")
+    log.write(f"N={N}\n")
+    log.write(f"L={L}\n")
+    log.write(f"W={W}\n")
+    log.write(f"P={P}\n")
+    log.write(f"CYCLES={cycles}\n")
+    log.write(f"BATCHES={batches}\n")
+    log.write(f"WIN={win}\n")
+    log.write(f"ROM_DEPTH_KEY={rom_depth_key}\n")
+    log.write(f"MASTER_SEED={seed}\n")
+    log.write("\n")
+    log.write(f"SEED_KEY   = 128'h{seed_key_int:032X}\n")
+    log.write(f"SEED_NONCE = 96'h{seed_nonce_int:024X}\n")
+    log.write("\n")
+    log.write("Use esses valores no top.v:\n")
+    log.write(f"parameter [127:0] SEED_KEY   = 128'h{seed_key_int:032X},\n")
+    log.write(f"parameter [95:0]  SEED_NONCE = 96'h{seed_nonce_int:024X}\n")
+    log.write("\n")
+
+
+def escrever_resultado_final(log, final_hash_bits):
+    """
+    Escreve apenas a chave final.
+
+    Quando o debug está desativado, esta é a única seção de resultado gravada.
+    """
+
+    log.write("============================================================\n")
+    log.write("RESULTADO FINAL\n")
+    log.write("============================================================\n")
+    log.write(f"FINAL_KEY = 0x{bits_to_hex_lsb(final_hash_bits, L)}\n")
+
+
 # ============================================================
 # MAIN
 # ============================================================
@@ -121,6 +167,28 @@ def main():
     parser.add_argument("--seed", type=int, default=MASTER_SEED)
     parser.add_argument("--seed-key", type=str, default=FIXED_SEED_KEY)
     parser.add_argument("--seed-nonce", type=str, default=FIXED_SEED_NONCE)
+
+    parser.add_argument(
+        "--log-file",
+        type=str,
+        default="debug_log.txt",
+        help="Nome do arquivo de log/resumo gerado."
+    )
+
+    debug_group = parser.add_mutually_exclusive_group()
+    debug_group.add_argument(
+        "--debug",
+        dest="debug",
+        action="store_true",
+        help="Ativa o registro completo do passo a passo."
+    )
+    debug_group.add_argument(
+        "--no-debug",
+        dest="debug",
+        action="store_false",
+        help="Desativa o passo a passo e grava apenas configuração e chave final."
+    )
+    parser.set_defaults(debug=False)
 
     args = parser.parse_args()
 
@@ -191,40 +259,39 @@ def main():
         f.write("END;\n")
 
     # ========================================================
-    # 5. CALCULA PRIVACY AMPLIFICATION E GERA debug_log.txt
+    # 5. CALCULA PRIVACY AMPLIFICATION E GERA LOG
     # ========================================================
 
     final_hash_bits = []
 
-    with open("debug_log.txt", "w", encoding="utf-8") as log:
-        log.write("============================================================\n")
-        log.write("DEBUG PRIVACY AMPLIFICATION - AES-128 CTR SEED GENERATOR\n")
-        log.write("============================================================\n")
-        log.write(f"N={N}\n")
-        log.write(f"L={L}\n")
-        log.write(f"W={W}\n")
-        log.write(f"P={P}\n")
-        log.write(f"CYCLES={cycles}\n")
-        log.write(f"BATCHES={batches}\n")
-        log.write(f"WIN={win}\n")
-        log.write(f"MASTER_SEED={args.seed}\n")
-        log.write("\n")
-        log.write(f"SEED_KEY   = 128'h{seed_key_int:032X}\n")
-        log.write(f"SEED_NONCE = 96'h{seed_nonce_int:024X}\n")
-        log.write("\n")
-        log.write("Use esses valores no top.v:\n")
-        log.write(f"parameter [127:0] SEED_KEY   = 128'h{seed_key_int:032X},\n")
-        log.write(f"parameter [95:0]  SEED_NONCE = 96'h{seed_nonce_int:024X}\n")
-        log.write("\n")
-        log.write("============================================================\n")
-        log.write("OPERACOES\n")
-        log.write("============================================================\n")
+    with open(args.log_file, "w", encoding="utf-8") as log:
+        escrever_configuracao(
+            log,
+            N=N,
+            L=L,
+            W=W,
+            P=P,
+            cycles=cycles,
+            batches=batches,
+            win=win,
+            rom_depth_key=rom_depth_key,
+            seed=args.seed,
+            seed_key_int=seed_key_int,
+            seed_nonce_int=seed_nonce_int,
+            debug_enabled=args.debug
+        )
+
+        if args.debug:
+            log.write("============================================================\n")
+            log.write("OPERACOES - DEBUG PASSO A PASSO\n")
+            log.write("============================================================\n")
 
         for batch in range(batches):
             acc = [0] * P
 
-            log.write("\n")
-            log.write(f"---------------- LOTE {batch} ----------------\n")
+            if args.debug:
+                log.write("\n")
+                log.write(f"---------------- LOTE {batch} ----------------\n")
 
             for cycle in range(cycles):
                 key_start = cycle * W
@@ -254,36 +321,40 @@ def main():
                     hash_step[lane] = bit_hash
                     acc[lane] ^= bit_hash
 
-                log.write(f"\nCiclo {cycle}\n")
-                log.write(f"  key_piece     = 0x{bits_to_hex_lsb(key_piece, W)}\n")
-                log.write(f"  matrix_window = 0x{bits_to_hex_lsb(matrix_window, win)}\n")
-                log.write(f"  hash_step     = 0x{bits_to_hex_lsb(hash_step, P)}\n")
-                log.write(f"  hash_acc      = 0x{bits_to_hex_lsb(acc, P)}\n")
+                if args.debug:
+                    log.write(f"\nCiclo {cycle}\n")
+                    log.write(f"  key_piece     = 0x{bits_to_hex_lsb(key_piece, W)}\n")
+                    log.write(f"  matrix_window = 0x{bits_to_hex_lsb(matrix_window, win)}\n")
+                    log.write(f"  hash_step     = 0x{bits_to_hex_lsb(hash_step, P)}\n")
+                    log.write(f"  hash_acc      = 0x{bits_to_hex_lsb(acc, P)}\n")
 
             valid_lanes = min(P, L - batch * P)
             batch_hash = acc[:valid_lanes]
             final_hash_bits.extend(batch_hash)
 
-            log.write("\n")
-            log.write(f"LOTE {batch} FINALIZADO\n")
-            log.write(f"  hash_out_lote = 0x{bits_to_hex_lsb(batch_hash, valid_lanes)}\n")
+            if args.debug:
+                log.write("\n")
+                log.write(f"LOTE {batch} FINALIZADO\n")
+                log.write(f"  hash_out_lote = 0x{bits_to_hex_lsb(batch_hash, valid_lanes)}\n")
 
         final_hash_bits = final_hash_bits[:L]
 
-        log.write("\n")
-        log.write("============================================================\n")
-        log.write("RESULTADO FINAL\n")
-        log.write("============================================================\n")
+        if args.debug:
+            log.write("\n")
+            log.write("============================================================\n")
+            log.write("RESULTADO POR LOTE\n")
+            log.write("============================================================\n")
 
-        for batch in range(batches):
-            start = batch * P
-            end = min(start + P, L)
-            lote_bits = final_hash_bits[start:end]
+            for batch in range(batches):
+                start = batch * P
+                end = min(start + P, L)
+                lote_bits = final_hash_bits[start:end]
 
-            log.write(f"HASH_LOTE_{batch} = 0x{bits_to_hex_lsb(lote_bits, len(lote_bits))}\n")
+                log.write(f"HASH_LOTE_{batch} = 0x{bits_to_hex_lsb(lote_bits, len(lote_bits))}\n")
 
-        log.write("\n")
-        log.write(f"FINAL_KEY = 0x{bits_to_hex_lsb(final_hash_bits, L)}\n")
+            log.write("\n")
+
+        escrever_resultado_final(log, final_hash_bits)
 
     # ========================================================
     # 6. PRINT RESUMIDO NO TERMINAL
@@ -293,11 +364,12 @@ def main():
     print("ARQUIVOS GERADOS")
     print("============================================================")
     print("key.mif")
-    print("debug_log.txt")
+    print(args.log_file)
     print("============================================================")
-    print(f"SEED_KEY   = 128'h{seed_key_int:032X}")
-    print(f"SEED_NONCE = 96'h{seed_nonce_int:024X}")
-    print(f"FINAL_KEY  = 0x{bits_to_hex_lsb(final_hash_bits, L)}")
+    print(f"DEBUG     = {int(args.debug)}")
+    print(f"SEED_KEY  = 128'h{seed_key_int:032X}")
+    print(f"SEED_NONCE= 96'h{seed_nonce_int:024X}")
+    print(f"FINAL_KEY = 0x{bits_to_hex_lsb(final_hash_bits, L)}")
     print("============================================================")
 
 
