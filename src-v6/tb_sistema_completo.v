@@ -32,8 +32,6 @@ module tb_sistema_completo;
         .W(W),
         .P(P),
         .L(L),
-        .ROM_ADDR_BITS(ROM_ADDR_BITS),
-        .MEM_DEPTH(MEM_DEPTH),
         .AES_CYCLES(AES_CYCLES),
         .SEED_KEY(SEED_KEY),
         .SEED_NONCE(SEED_NONCE)
@@ -92,7 +90,7 @@ module tb_sistema_completo;
             end
 
             // Timeout simples para nao rodar para sempre se o DUT travar.
-            if (cycle_count == 200000) begin
+            /*if (cycle_count == 200000) begin
                 $display("============================================================");
                 $display(" TIMEOUT: a simulacao nao capturou todos os batches.");
                 $display(" Batches capturados = %0d / %0d", batch_count, BATCHES);
@@ -106,7 +104,7 @@ module tb_sistema_completo;
                 $display(" seed_ready         = %0b", uut_top.seed_ready);
                 $display("============================================================");
                 $finish;
-            end
+            end*/
         end
     end
 

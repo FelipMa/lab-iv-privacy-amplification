@@ -8,11 +8,6 @@ module top #(
     parameter W = 64,
     parameter P = 32,
     parameter L = 64,
-
-    // ROM da chave reconciliada
-    parameter ROM_ADDR_BITS = 5,
-    parameter MEM_DEPTH     = 32,
-
     // ============================================================
     // Parametros do Seed Generator AES-128 CTR
     // Atualize estes valores com os gerados pelo gerar_dados.py
@@ -35,6 +30,30 @@ module top #(
     localparam CYCLES     = (N + W - 1) / W;
     localparam BATCHES    = (L + P - 1) / P;
     localparam BATCH_BITS = $clog2(BATCHES);
+
+    localparam ROM_ADDR_BITS = (CYCLES <= 32)    ? 5 : 
+                               (CYCLES <= 64)    ? 6 : 
+                               (CYCLES <= 128)   ? 7 : 
+                               (CYCLES <= 256)   ? 8 : 
+                               (CYCLES <= 512)   ? 9 : 
+                               (CYCLES <= 1024)  ? 10 : 
+                               (CYCLES <= 2048)  ? 11 : 
+                               (CYCLES <= 4096)  ? 12 : 
+                               (CYCLES <= 8192)  ? 13 : 
+                               (CYCLES <= 16384) ? 14 : 
+                               (CYCLES <= 32768) ? 15 : 16;
+                               
+    localparam MEM_DEPTH = (CYCLES <= 32)    ? 32 : 
+                           (CYCLES <= 64)    ? 64: 
+                           (CYCLES <= 128)   ? 128: 
+                           (CYCLES <= 256)   ? 256: 
+                           (CYCLES <= 512)   ? 512: 
+                           (CYCLES <= 1024)  ? 1024: 
+                           (CYCLES <= 2048)  ? 2048: 
+                           (CYCLES <= 4096)  ? 4096: 
+                           (CYCLES <= 8192)  ? 8192: 
+                           (CYCLES <= 16384) ? 16384: 
+                           (CYCLES <= 32768) ? 32768 : 65536;
 
     // ============================================================
     // Reset interno sincronizado pelo controlador
