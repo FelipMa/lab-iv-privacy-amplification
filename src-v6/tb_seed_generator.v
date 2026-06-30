@@ -136,7 +136,7 @@ module tb_seed_generator;
         ref_input_block = 0;
 
         nonce = 96'h00000000_00000000_00000001;
-        key   = 128'h2b7e1516_28aed2a6_abf71588_09cf4f3c;
+        key   = 128'h2B7E151628AED2A6ABF7158809CF4F3C;
 
         errors       = 0;
         seen_windows = 0;
