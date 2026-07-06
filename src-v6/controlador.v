@@ -5,8 +5,9 @@ module controlador #(
     parameter W = 64,
     parameter P = 32,
     parameter L = 64,
-    // Valor de carga inicial do LFSR gerador de seed.
-    // Nao pode ser todos-uns: e o estado de travamento do LFSR XNOR.
+    // Fallback de carga inicial do LFSR gerador de seed, usado apenas se o
+    // contador de entropia estiver em todos-uns (estado de travamento do
+    // LFSR XNOR) no instante da carga.
     parameter [31:0] LFSR_INIT = 32'hACE12B7D
 )(
     input  wire                   clock,
@@ -92,6 +93,25 @@ module controlador #(
     reg  [SEED_CNT_BITS-1:0] seed_cnt;
     reg                      lfsr_seed_dv;
 
+    // --------------------------------------------------------------
+    // Entropia do tempo de reset
+    //
+    // Contador livre que NAO e zerado por sys_reset: o valor que ele
+    // tem no instante em que o LFSR carrega a semente depende de por
+    // quanto tempo o reset ficou pressionado na placa. Assim cada
+    // execucao na FPGA parte de uma semente diferente, em vez de
+    // repetir sempre a sequencia derivada de um parametro fixo.
+    // --------------------------------------------------------------
+    reg [31:0] entropy_counter = 32'd0;
+
+    always @(posedge clock)
+        entropy_counter <= entropy_counter + 32'd1;
+
+    // Todos-uns e o estado de travamento do LFSR XNOR: se o contador
+    // estiver exatamente nesse valor na carga, usa o fallback fixo.
+    wire [31:0] lfsr_seed_value = (entropy_counter == {32{1'b1}}) ? LFSR_INIT
+                                                                  : entropy_counter;
+
     wire [31:0] lfsr_data;
     wire        lfsr_enable = (current_state == S_GEN_SEED);
     wire        seed_done   = (seed_cnt == SEED_BITS);
@@ -104,7 +124,7 @@ module controlador #(
         .i_Clk       (clock),
         .i_Enable    (lfsr_enable),
         .i_Seed_DV   (lfsr_seed_dv),
-        .i_Seed_Data (LFSR_INIT),
+        .i_Seed_Data (lfsr_seed_value),
         .o_LFSR_Data (lfsr_data),
         .o_LFSR_Done ()
     );
