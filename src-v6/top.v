@@ -15,14 +15,6 @@ module top #(
     parameter AES_CYCLES = 20,
     parameter [127:0] SEED_KEY   = 128'h2b7e151628aed2a6abf7158809cf4f3c,
     parameter [95:0]  SEED_NONCE = 96'h000000000000000000000001,
-    // ============================================================
-    // Seed pseudo-aleatoria via LFSR (gerada pelo controlador)
-    //
-    // USE_LFSR_SEED = 1: key/nonce do AES-CTR vem do LFSR interno.
-    // USE_LFSR_SEED = 0: usa SEED_KEY/SEED_NONCE fixos acima
-    //                    (necessario para validar contra os valores
-    //                    esperados do gerar_dados.py).
-    // ============================================================
     parameter USE_LFSR_SEED = 1,
     parameter [31:0] LFSR_INIT = 32'hACE12B7D
 )(
@@ -119,7 +111,6 @@ module top #(
     wire [(W+P-2):0] current_matrix_window;
     wire             seed_busy;
 
-    // Seed {key, nonce} gerada pelo LFSR do controlador.
     wire [127:0]     lfsr_seed_key;
     wire [95:0]      lfsr_seed_nonce;
 
