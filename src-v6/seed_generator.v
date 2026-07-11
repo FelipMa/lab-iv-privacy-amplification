@@ -33,15 +33,30 @@ module seed_generator #(
     localparam AES_QTD      = (W * AES_CYCLES + 127) / 128;
     localparam AES_INTERVAL = (W >= 128) ? 1 : (128 / W);
 
-    // Para nao expor uma janela invalida logo apos o warmup, o buffer inicial
-    // precisa cobrir tambem os ciclos sem chegada de novo bloco AES.
-    localparam WARMUP_BITS  = WIN + ((AES_INTERVAL > 0) ? ((AES_INTERVAL - 1) * W) : 0);
+    // Para nao expor uma janela invalida logo apos o warmup, o registrador de
+    // janela precisa cobrir tambem os ciclos sem chegada de novo bloco AES.
+    // A margem extra de W bits cobre o ciclo adicional de pipeline entre a
+    // leitura da FIFO e a insercao no gearbox (ver pending_valid abaixo).
+    localparam WARMUP_BITS  = WIN + ((AES_INTERVAL > 0) ? ((AES_INTERVAL - 1) * W) : 0) + W;
 
-    // Dimensionamento dinamico do buffer.
-    localparam MIN_BUF      = 128 + WARMUP_BITS + (AES_QTD * 128);
-    localparam BUFFER_SIZE  = (MIN_BUF <= 512)  ? 512  :
-                              (MIN_BUF <= 1024) ? 1024 :
-                              (MIN_BUF <= 2048) ? 2048 : 4096;
+    // ------------------------------------------------------------
+    // Buffer em 3 estagios, todos com deslocamento de largura fixa ou de
+    // granularidade grande (nunca bit-a-bit sobre milhares de bits, que era
+    // a causa do caminho critico do buffer monolitico anterior):
+    //
+    //   FIFO de staging (128b/slot, sem shift, so indexacao) ->
+    //   gearbox (256b, unico shift variavel, confinado a <=128 posicoes) ->
+    //   registrador de janela (WINREG bits, shift sempre em multiplos de W)
+    // ------------------------------------------------------------
+    localparam FIFO_DEPTH     = (AES_QTD + 2 < 4) ? 4 : (AES_QTD + 2);
+    localparam FIFO_PTR_BITS  = $clog2(FIFO_DEPTH);
+    localparam FIFO_CNT_BITS  = $clog2(FIFO_DEPTH + 1);
+
+    localparam GB_WIDTH       = 256;
+    localparam GB_CNT_BITS    = 9;
+
+    localparam WINREG         = W * (((WARMUP_BITS + W - 1) / W) + 1);
+    localparam WIN_CNT_BITS   = $clog2(WINREG + 1);
 
     // ============================================================
     // Estados da FSM principal
@@ -52,9 +67,12 @@ module seed_generator #(
     localparam S_STREAMING  = 3'd3;
     localparam S_DONE       = 3'd4;
 
-    reg [2:0]  state;
-    reg [31:0] batch_idx;
-    reg [31:0] cycles_done;
+    localparam CYCLES_BITS  = $clog2(CYCLES);
+    localparam BATCHES_BITS = $clog2(BATCHES);
+
+    reg [2:0]              state;
+    reg [BATCHES_BITS:0]   batch_idx;
+    reg [CYCLES_BITS:0]    cycles_done;
 
     wire [63:0] calc_start_idx    = batch_idx * P;
     wire [31:0] calc_base_counter = calc_start_idx[63:7]; // start_idx / 128
@@ -65,13 +83,13 @@ module seed_generator #(
     reg        is_first_block;
 
     // ============================================================
-    // Shift register e saidas
+    // Registrador de janela (saida) e FSM auxiliares
     // ============================================================
-    reg [BUFFER_SIZE-1:0] shift_reg;
-    reg [12:0]            valid_bits;
+    reg [WINREG-1:0]      window_reg;
+    reg [WIN_CNT_BITS-1:0] win_valid_bits;
 
-    assign matrix_window   = shift_reg[WIN-1:0];
-    assign ready_to_stream = (state == S_STREAMING) && (valid_bits >= WIN);
+    assign matrix_window   = window_reg[WIN-1:0];
+    assign ready_to_stream = (state == S_STREAMING) && (win_valid_bits >= WIN[WIN_CNT_BITS-1:0]);
     assign busy            = (state != S_IDLE) && (state != S_DONE);
 
     wire stream_fire = go && ready_to_stream;
@@ -126,18 +144,64 @@ module seed_generator #(
     end
 
     // ============================================================
+    // FIFO de staging: cada bloco AES capturado vai para um slot indexado
+    // por ponteiro (sem shift nenhum). Substitui o antigo controle de
+    // "espaco restante" em bits por uma contagem de slots livres.
+    // ============================================================
+    (* ramstyle = "logic" *) reg [127:0] fifo_mem [0:FIFO_DEPTH-1];
+    reg [FIFO_PTR_BITS-1:0]  fifo_wr_ptr;
+    reg [FIFO_PTR_BITS-1:0]  fifo_rd_ptr;
+    reg [FIFO_CNT_BITS-1:0]  fifo_count;
+
+    wire [127:0] fifo_rd_data = fifo_mem[fifo_rd_ptr];
+
+    // ============================================================
+    // Gearbox: registrador de 256 bits que absorve o (unico) shift de
+    // distancia variavel do sistema, confinado a no maximo 128 posicoes,
+    // e monta o fluxo de W bits/ciclo a partir das palavras de 128 bits da
+    // FIFO. O alinhamento de offset do primeiro bloco do lote e aplicado
+    // aqui, uma vez por lote.
+    //
+    // A leitura da FIFO (fifo_rd_ptr -> mux -> shift-insere em gb_reg) e
+    // dividida em 2 estagios de registrador (pending_*) para nao encadear o
+    // mux de leitura com o barrel shift no mesmo ciclo: isso so adiciona 1
+    // ciclo de latencia por palavra, nao reduz o throughput (um pop pode
+    // ser emitido a cada ciclo, o pipeline nao trava).
+    // ============================================================
+    reg [GB_WIDTH-1:0]     gb_reg;
+    reg [GB_CNT_BITS-1:0]  gb_valid_bits;
+
+    reg         pending_valid;
+    reg [127:0] pending_word;
+    reg         pending_is_first;
+
+    wire [7:0]   w_comb           = (pending_is_first) ? (8'd128 - {1'b0, offset}) : 8'd128;
+    wire [127:0] padded_data_comb = (pending_is_first) ? (pending_word >> offset) : pending_word;
+    wire [GB_WIDTH-1:0] padded_data_ext = {{(GB_WIDTH-128){1'b0}}, padded_data_comb};
+
+    // Reserva espaco para a palavra que ja foi lida da FIFO mas ainda nao
+    // foi inserida no gearbox (pending_valid), para nao estourar GB_WIDTH.
+    wire gb_has_room = (gb_valid_bits + (pending_valid ? 9'd128 : 9'd0)) <= (GB_WIDTH - 128);
+    wire fifo_pop     = (state == S_STREAMING || state == S_WARMUP) &&
+                        (fifo_count != 0) && gb_has_room;
+
+    wire win_has_room = (win_valid_bits + W <= WINREG[WIN_CNT_BITS-1:0]);
+    wire feed_window  = (state == S_STREAMING || state == S_WARMUP) &&
+                        (gb_valid_bits >= W) && win_has_room;
+
+    // ============================================================
     // Feeder dos AES em modo CTR intercalado
     // ============================================================
-    reg [31:0] current_aes_counter;
-    reg [31:0] lane_to_feed;
-    reg [7:0]  timer_interval;
-    reg [31:0] blocks_in_flight;
+    localparam LANE_BITS = (AES_QTD > 1) ? $clog2(AES_QTD) : 1;
 
-    wire [12:0] space_remaining = BUFFER_SIZE - valid_bits;
-    wire [12:0] space_needed    = (blocks_in_flight + 1) * 128;
-    wire        can_launch      = aes_active && (timer_interval == 0) &&
-                                  aes_ready[lane_to_feed] &&
-                                  (space_remaining >= space_needed);
+    reg [31:0]              current_aes_counter;
+    reg [LANE_BITS-1:0]     lane_to_feed;
+    reg [7:0]               timer_interval;
+    reg [FIFO_CNT_BITS-1:0] blocks_in_flight;
+
+    wire can_launch = aes_active && (timer_interval == 0) &&
+                      aes_ready[lane_to_feed] &&
+                      ((fifo_count + blocks_in_flight) < FIFO_DEPTH[FIFO_CNT_BITS-1:0]);
 
     always @(posedge clock) begin
         if (!reset_n) begin
@@ -180,29 +244,36 @@ module seed_generator #(
     end
 
     // ============================================================
-    // Proximo valor do sliding window buffer
+    // Proximo valor do gearbox e do registrador de janela
     // ============================================================
-    reg [BUFFER_SIZE-1:0] next_sr;
-    reg [12:0]            next_vb;
-    wire [7:0]            w_comb           = (is_first_block) ? (8'd128 - {1'b0, offset}) : 8'd128;
-    wire [127:0]          padded_data_comb = (is_first_block) ? (captured_block >> offset) : captured_block;
+    reg [GB_WIDTH-1:0]      next_gb;
+    reg [GB_CNT_BITS-1:0]   next_gb_valid;
+    reg [WINREG-1:0]        next_win;
+    reg [WIN_CNT_BITS-1:0]  next_win_valid;
 
     always @(*) begin
-        next_sr = shift_reg;
-        next_vb = valid_bits;
+        next_gb        = gb_reg;
+        next_gb_valid  = gb_valid_bits;
+        next_win       = window_reg;
+        next_win_valid = win_valid_bits;
 
         if (state == S_STREAMING || state == S_WARMUP) begin
-            // Consome a janela atual somente quando o consumidor realmente
-            // aceitou uma janela valida.
             if (stream_fire) begin
-                next_sr = next_sr >> W;
-                next_vb = next_vb - W;
+                next_win       = next_win >> W;
+                next_win_valid = next_win_valid - W;
             end
 
-            // Anexa o proximo bloco do keystream AES-CTR ao fim do buffer.
-            if (captured_valid) begin
-                next_sr = next_sr | (padded_data_comb << next_vb);
-                next_vb = next_vb + w_comb;
+            if (feed_window) begin
+                next_gb       = next_gb >> W;
+                next_gb_valid = next_gb_valid - W;
+
+                next_win       = next_win | ({{(WINREG-W){1'b0}}, gb_reg[W-1:0]} << next_win_valid);
+                next_win_valid = next_win_valid + W;
+            end
+
+            if (pending_valid) begin
+                next_gb       = next_gb | (padded_data_ext << next_gb_valid);
+                next_gb_valid = next_gb_valid + w_comb;
             end
         end
     end
@@ -217,9 +288,18 @@ module seed_generator #(
             cycles_done    <= 0;
             base_counter   <= 0;
             offset         <= 0;
-            shift_reg      <= 0;
-            valid_bits     <= 0;
             is_first_block <= 1'b1;
+
+            fifo_wr_ptr    <= 0;
+            fifo_rd_ptr    <= 0;
+            fifo_count     <= 0;
+            gb_reg         <= 0;
+            gb_valid_bits  <= 0;
+            window_reg     <= 0;
+            win_valid_bits <= 0;
+            pending_valid  <= 1'b0;
+            pending_word   <= 0;
+            pending_is_first <= 1'b0;
         end else begin
             case (state)
                 S_IDLE: begin
@@ -233,18 +313,49 @@ module seed_generator #(
                     base_counter   <= calc_base_counter;
                     offset         <= calc_offset;
                     cycles_done    <= 0;
-                    shift_reg      <= 0;
-                    valid_bits     <= 0;
                     is_first_block <= 1'b1;
+
+                    fifo_wr_ptr    <= 0;
+                    fifo_rd_ptr    <= 0;
+                    fifo_count     <= 0;
+                    gb_reg         <= 0;
+                    gb_valid_bits  <= 0;
+                    window_reg     <= 0;
+                    win_valid_bits <= 0;
+                    pending_valid  <= 1'b0;
+                    pending_word   <= 0;
+                    pending_is_first <= 1'b0;
+
                     state          <= S_WARMUP;
                 end
 
                 S_WARMUP, S_STREAMING: begin
-                    shift_reg  <= next_sr;
-                    valid_bits <= next_vb;
+                    gb_reg         <= next_gb;
+                    gb_valid_bits  <= next_gb_valid;
+                    window_reg     <= next_win;
+                    win_valid_bits <= next_win_valid;
 
-                    if (captured_valid && is_first_block)
-                        is_first_block <= 1'b0;
+                    if (captured_valid) begin
+                        fifo_mem[fifo_wr_ptr] <= captured_block;
+                        fifo_wr_ptr           <= (fifo_wr_ptr == FIFO_DEPTH-1) ? 0 : fifo_wr_ptr + 1;
+                    end
+
+                    pending_valid <= fifo_pop;
+
+                    if (fifo_pop) begin
+                        fifo_rd_ptr      <= (fifo_rd_ptr == FIFO_DEPTH-1) ? 0 : fifo_rd_ptr + 1;
+                        pending_word     <= fifo_rd_data;
+                        pending_is_first <= is_first_block;
+
+                        if (is_first_block)
+                            is_first_block <= 1'b0;
+                    end
+
+                    case ({captured_valid, fifo_pop})
+                        2'b10:   fifo_count <= fifo_count + 1'b1;
+                        2'b01:   fifo_count <= fifo_count - 1'b1;
+                        default: fifo_count <= fifo_count;
+                    endcase
 
                     if (stream_fire) begin
                         if (cycles_done + 1 == CYCLES) begin
@@ -257,7 +368,7 @@ module seed_generator #(
                         end else begin
                             cycles_done <= cycles_done + 1;
                         end
-                    end else if (state == S_WARMUP && next_vb >= WARMUP_BITS) begin
+                    end else if (state == S_WARMUP && next_win_valid >= WARMUP_BITS[WIN_CNT_BITS-1:0]) begin
                         state <= S_STREAMING;
                     end
                 end

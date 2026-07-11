@@ -6,8 +6,6 @@ module tb_sistema_completo;
     parameter W = 64;
     parameter P = 32;
     parameter L = 64;
-    parameter ROM_ADDR_BITS = 5;
-    parameter MEM_DEPTH = 32;
     parameter AES_CYCLES = 20;
     parameter [127:0] SEED_KEY   = 128'h2B7E151628AED2A6ABF7158809CF4F3C;
     parameter [95:0]  SEED_NONCE = 96'h000000000000000000000001;
