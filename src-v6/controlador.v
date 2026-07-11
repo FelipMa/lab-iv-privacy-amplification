@@ -4,8 +4,7 @@ module controlador #(
     parameter N = 640,
     parameter W = 64,
     parameter P = 32,
-    parameter L = 64,
-    parameter [31:0] LFSR_INIT = 32'hACE12B7D
+    parameter L = 64
 )(
     input  wire                   clock,
     input  wire                   reset,
@@ -24,9 +23,6 @@ module controlador #(
     // Controle do Seed Generator AES-CTR/Hankel
     output reg                    seed_prepare,
     output reg                    seed_go,
-
-    output wire [127:0]           seed_key,
-    output wire [95:0]            seed_nonce,
 
     // Controle da compression_unit
     output reg                    clear_acc,
@@ -74,39 +70,6 @@ module controlador #(
 
     assign ram_we = batch_ready && (ram_address < BATCHES);
 
-    localparam SEED_BITS = 128 + 96;
-    localparam SEED_CNT_BITS = $clog2(SEED_BITS + 1);
-
-    reg  [SEED_BITS-1:0]     seed_shift;
-    reg  [SEED_CNT_BITS-1:0] seed_cnt;
-    reg                      lfsr_seed_dv;
-
-    reg [31:0] entropy_counter = 32'd0;
-
-    always @(posedge clock)
-        entropy_counter <= entropy_counter + 32'd1;
-
-    wire [31:0] lfsr_seed_value = (entropy_counter == {32{1'b1}}) ? LFSR_INIT
-                                                                  : entropy_counter;
-
-    wire [31:0] lfsr_data;
-    wire        lfsr_enable = (current_state == S_GEN_SEED);
-    wire        seed_done   = (seed_cnt == SEED_BITS);
-    wire        seed_sample = lfsr_enable && !lfsr_seed_dv && !seed_done;
-
-    LFSR #(
-        .NUM_BITS (32)
-    ) u_lfsr (
-        .i_Clk       (clock),
-        .i_Enable    (lfsr_enable),
-        .i_Seed_DV   (lfsr_seed_dv),
-        .i_Seed_Data (lfsr_seed_value),
-        .o_LFSR_Data (lfsr_data),
-        .o_LFSR_Done ()
-    );
-
-    assign {seed_key, seed_nonce} = seed_shift;
-
     always @(*) begin
         next_state   = current_state;
 
@@ -122,14 +85,7 @@ module controlador #(
         case (current_state)
             S_IDLE: begin
                 clear_acc  = 1'b1;
-                next_state = S_GEN_SEED;
-            end
-
-            S_GEN_SEED: begin
-                clear_acc = 1'b1;
-
-                if (seed_done)
-                    next_state = S_PREPARE;
+                next_state = S_PREPARE;
             end
 
             S_PREPARE: begin
@@ -198,19 +154,8 @@ module controlador #(
             words_idx     <= {WORD_BITS+1{1'b0}};
             hash_register <= {P{1'b0}};
             ram_address   <= {(BATCH_BITS+1){1'b0}};
-            seed_shift    <= {SEED_BITS{1'b0}};
-            seed_cnt      <= {SEED_CNT_BITS{1'b0}};
-            lfsr_seed_dv  <= 1'b1;
         end else begin
             current_state <= next_state;
-
-            if (lfsr_enable)
-                lfsr_seed_dv <= 1'b0;
-
-            if (seed_sample) begin
-                seed_shift <= {seed_shift[SEED_BITS-2:0], lfsr_data[0]};
-                seed_cnt   <= seed_cnt + 1'b1;
-            end
 
             if (current_state == S_PREPARE) begin
                 batch_idx     <= {BATCH_BITS+1{1'b0}};

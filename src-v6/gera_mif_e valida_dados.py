@@ -22,8 +22,8 @@ MASTER_SEED = 42
 # Se quiser fixar manualmente, preencha aqui.
 # Se deixar None, o script gera dinamicamente a partir da MASTER_SEED.
 
-FIXED_SEED_KEY   = "ffffc00fff6db6d145d766fa5f99f694"
-FIXED_SEED_NONCE = "b226a234a9c1645074e4a326"
+FIXED_SEED_KEY   = "2B7E151628AED2A6ABF7158809CF4F3C"
+FIXED_SEED_NONCE = "000000000000000000000001"
 
 
 # ============================================================

@@ -183,16 +183,6 @@ refer to the applicable agreement for further details.
 		"000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001"
 		""
 		(type "PARAMETER_UNSIGNED_BIN")	)
-	(parameter
-		"USE_LFSR_SEED"
-		"1"
-		""
-		(type "PARAMETER_SIGNED_DEC")	)
-	(parameter
-		"LFSR_INIT"
-		"10101100111000010010101101111101"
-		""
-		(type "PARAMETER_UNSIGNED_BIN")	)
 	(drawing
 		(rectangle (rect 16 16 184 96))
 	)
