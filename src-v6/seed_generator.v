@@ -59,7 +59,13 @@ module seed_generator #(
     parameter integer WINDOW_PAD_BITS  = WINDOW_PAD_WORDS * W,
 
     parameter integer INDEX_BITS     = 32,
-    parameter integer AES_MSB_FIRST  = 1,
+
+    // stream_pos 0 deve mapear para o bit menos significativo do bloco AES
+    // (mesma convencao LSB-first do gerar_dados.py e do seed_generator
+    // anterior, que empurrava output_block cru para a janela sem inverter
+    // bits). AES_MSB_FIRST=1 percorreria o bloco em ordem invertida e
+    // desalinharia o keystream em relacao a key.mif/debug_log.txt.
+    parameter integer AES_MSB_FIRST  = 0,
 
     parameter integer CYCLES_PER_BATCH = (N + W - 1) / W,
     parameter integer TOTAL_BATCHES    = (L + P - 1) / P
