@@ -13,9 +13,9 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 # ============================================================
 
 W = 64
-P = 32
-N = 640
-L = 64
+P = 1563
+N = 1000000
+L = 100000
 
 MASTER_SEED = 42
 

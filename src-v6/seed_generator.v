@@ -1,37 +1,5 @@
 `timescale 1ns/1ps
 
-// -----------------------------------------------------------------------------
-// seed_generator
-// -----------------------------------------------------------------------------
-// Versao em rajadas sincronizadas de AES, corrigida para evitar escrita seletiva
-// em window_reg controlada por init_chunk_count.
-//
-// Mudanca principal em relacao a versao burst11_simple:
-//   - A janela inicial NAO e mais carregada com:
-//         window_reg[(init_chunk_count*SLOT_BITS)+i] <= ...
-//     pois isso faz init_chunk_count controlar muxes/enables para muitos bits.
-//   - Agora cada chunk e inserido na janela por um deslocamento FIXO:
-//         window_reg <= append_chunk_to_window(window_reg, chunk_bits_r)
-//     Assim, init_chunk_count apenas decide se ainda estamos no warmup da janela,
-//     mas nao escolhe posicoes variaveis dentro de window_reg.
-//   - Tambem foi inserido um registrador chunk_bits_r entre a saida AES e a
-//     escrita em window_reg/slots, separando a selecao dos bits uteis da escrita
-//     da janela.
-//
-// Arquitetura:
-//   11 AES em paralelo (para W=64, AES_CYCLES=20)
-//       -> chunk de SLOT_BITS = AES_CYCLES*W bits uteis
-//       -> window_reg recebe chunks por shift fixo no warmup
-//       -> active_slot / standby_slot recebem chunks inteiros
-//       -> durante RUN, window_reg desliza W bits por ciclo e recebe a proxima
-//          palavra W do active_slot.
-//
-// Observacao:
-//   - Esta versao instancia AES diretamente, e nao CTR_seed_controller, para
-//     controlar rajadas de um unico bloco por lane.
-//   - A interface externa foi mantida igual ao top.v atual.
-// -----------------------------------------------------------------------------
-
 module seed_generator #(
     parameter integer N              = 640,
     parameter integer L              = 64,
@@ -76,9 +44,9 @@ module seed_generator #(
     output wire [WIN-1:0] matrix_window,
     output wire           busy
 );
-	 // -------------------------------------------------------------------------
-    // Janela e slots
-    // -------------------------------------------------------------------------
+
+    //janela e slots
+
     reg [WINDOW_PAD_BITS-1:0] window_reg;
     reg [SLOT_BITS-1:0]       active_slot;
     reg [SLOT_BITS-1:0]       standby_slot;
@@ -91,9 +59,6 @@ module seed_generator #(
     reg [SLOT_BITS-1:0] chunk_bits_r;
     reg                 chunk_valid_r;
 
-    // -------------------------------------------------------------------------
-    // Funcoes auxiliares
-    // -------------------------------------------------------------------------
     function integer clog2_int;
         input integer value;
         integer v;
@@ -129,9 +94,6 @@ module seed_generator #(
         end
     endfunction
 
-    // Le um bit do conjunto de blocos AES da rajada.
-    // stream_pos e a posicao dentro da concatenacao:
-    // AES(base+0) || AES(base+1) || ...
     function get_burst_stream_bit;
         input [(AES_QTD*128)-1:0] blocks_flat;
         input integer stream_pos;
@@ -151,29 +113,22 @@ module seed_generator #(
         end
     endfunction
 
-    // Insere um chunk inteiro no topo da janela usando deslocamento fixo.
-    // Depois de WINDOW_CHUNKS insercoes, o chunk mais antigo fica nos bits baixos,
-    // que sao os bits vistos por matrix_window.
+
     function [WINDOW_PAD_BITS-1:0] append_chunk_to_window;
         input [WINDOW_PAD_BITS-1:0] win;
         input [SLOT_BITS-1:0]       chunk;
         integer f;
         begin
             append_chunk_to_window = {WINDOW_PAD_BITS{1'b0}};
-
-            // Parte antiga desloca para baixo por SLOT_BITS.
             for (f = 0; f < (WINDOW_PAD_BITS - SLOT_BITS); f = f + 1) begin
                 append_chunk_to_window[f] = win[f + SLOT_BITS];
             end
-
-            // Novo chunk entra no topo.
             for (f = 0; f < SLOT_BITS; f = f + 1) begin
                 append_chunk_to_window[(WINDOW_PAD_BITS - SLOT_BITS) + f] = chunk[f];
             end
         end
     endfunction
 
-    // Avanca a janela de streaming em W bits e insere uma palavra W no topo.
     function [WINDOW_PAD_BITS-1:0] append_word_to_window;
         input [WINDOW_PAD_BITS-1:0] win;
         input [W-1:0]               word;
@@ -186,7 +141,7 @@ module seed_generator #(
                 append_word_to_window[f] = win[f + W];
             end
 
-            // Palavra nova entra no topo.
+            ///palavra nova entra no topo.
             for (f = 0; f < W; f = f + 1) begin
                 append_word_to_window[(WINDOW_PAD_BITS - W) + f] = word[f];
             end
@@ -198,9 +153,7 @@ module seed_generator #(
     localparam [31:0] CYCLES_PER_BATCH_32 = CYCLES_PER_BATCH;
     localparam [31:0] TOTAL_BATCHES_32    = TOTAL_BATCHES;
 
-    // -------------------------------------------------------------------------
-    // Estados
-    // -------------------------------------------------------------------------
+
     localparam S_IDLE  = 3'd0;
     localparam S_RESET = 3'd1;
     localparam S_INIT  = 3'd2;
@@ -214,9 +167,6 @@ module seed_generator #(
     assign ready_to_stream = (state == S_RUN);
     assign matrix_window   = window_reg[WIN-1:0];
 
-    // -------------------------------------------------------------------------
-    // Controle de lote e slot
-    // -------------------------------------------------------------------------
     reg [31:0]           batch_idx;
     reg [31:0]           cycle_in_batch;
     reg [31:0]           slot_word_idx;
@@ -232,9 +182,6 @@ module seed_generator #(
     assign last_batch          = (batch_idx == (TOTAL_BATCHES_32 - 32'd1));
     assign slot_end_fire       = consume_fire && (slot_word_idx == (SLOT_WORDS_32 - 32'd1));
 
-    // -------------------------------------------------------------------------
-    // AES em rajada
-    // -------------------------------------------------------------------------
     wire aes_local_reset_n;
     assign aes_local_reset_n = reset_n && (state != S_RESET);
 
@@ -293,7 +240,7 @@ module seed_generator #(
 
     // -------------------------------------------------------------------------
     // Conversao da rajada AES para chunk util
-    // -------------------------------------------------------------------------
+
     wire [INDEX_BITS-1:0] current_chunk_bit_start;
     wire [6:0]            current_chunk_offset;
 
@@ -312,9 +259,6 @@ module seed_generator #(
         end
     end
 
-    // -------------------------------------------------------------------------
-    // Controle sequencial
-    // -------------------------------------------------------------------------
     always @(posedge clock) begin
         if (!reset_n) begin
             state                  <= S_IDLE;
@@ -334,14 +278,10 @@ module seed_generator #(
             aes_current_word_start <= 32'd0;
         end else begin
 
-            // Metadado da rajada aceita pelo AES.
             if (aes_accept_burst) begin
                 aes_current_word_start <= aes_next_word_start;
                 aes_next_word_start    <= aes_next_word_start + SLOT_WORDS_32;
             end
-
-            // Registra o chunk vindo dos AES. Normalmente nao ha colisao, pois os
-            // chunks chegam a cada AES_CYCLES ciclos e sao consumidos bem antes.
             if (all_aes_output_valid) begin
                 chunk_bits_r  <= chunk_bits_comb;
                 chunk_valid_r <= 1'b1;
@@ -375,9 +315,6 @@ module seed_generator #(
                 S_INIT: begin
                     if (chunk_valid_r) begin
                         if (init_chunk_count < WINDOW_CHUNKS_32) begin
-                            // CORRECAO PRINCIPAL:
-                            // carrega janela inicial por shift fixo de chunk,
-                            // sem escrita em posicao variavel controlada por contador.
                             window_reg       <= append_chunk_to_window(window_reg, chunk_bits_r);
                             init_chunk_count <= init_chunk_count + 32'd1;
                             chunk_valid_r    <= 1'b0;
@@ -398,16 +335,15 @@ module seed_generator #(
 
                 S_RUN: begin
                     // Se chegou um chunk novo, guarda como standby quando houver vaga.
-                    // Com a cadencia ideal, ele chega logo apos a promocao do slot.
-                    if (chunk_valid_r && !standby_valid) begin
+                    if (chunk_valid_r && !standby_valid) begin // Com a cadencia ideal, ele chega logo apos a promocao do slot
                         standby_slot  <= chunk_bits_r;
                         standby_valid <= 1'b1;
                         chunk_valid_r <= 1'b0;
                     end
 
                     if (consume_fire) begin
-                        // A compression_unit amostra matrix_window nesta borda.
-                        // A proxima janela e preparada para o ciclo seguinte.
+                        // A compression_unit amostra matrix_window nesta borda!! A proxima janela e preparada para o ciclo seguinte
+                        
                         window_reg  <= append_word_to_window(window_reg, active_slot[W-1:0]);
                         active_slot <= {{W{1'b0}}, active_slot[SLOT_BITS-1:W]};
 
@@ -432,8 +368,8 @@ module seed_generator #(
                                     active_slot   <= standby_slot;
                                     standby_valid <= 1'b0;
                                 end else begin
-                                    // Deve ser raro/impossivel se a cadencia AES estiver correta.
-                                    state <= S_WAIT;
+                                    
+                                    state <= S_WAIT; // provaavel ser raro/impossivel se a cadencia AES estiver correta!!!
                                 end
                             end else begin
                                 slot_word_idx <= slot_word_idx + 32'd1;
