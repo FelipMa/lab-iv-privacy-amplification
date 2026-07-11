@@ -178,36 +178,6 @@ module top #(
     end
 
     // ============================================================
-    // 2o registrador de fronteira (P grande, ex. P=660/W=128)
-    //
-    // safe_key_r/safe_window_r ja sao uma fonte estavel (registrada), mas
-    // em P grande o proprio roteamento ate as ~P instancias de hash_engine
-    // (fanout fisico, nao mais uma decisao tardia) mais a reducao AND/XOR
-    // de cada uma nao cabem num unico ciclo. Esse 2o estagio da ao
-    // sintetizador um ciclo inteiro soh para distribuir/duplicar
-    // fisicamente o sinal de fanout alto perto dos destinos, antes da
-    // reducao (agora local e curta) rodar no ciclo seguinte.
-    // ============================================================
-    reg [(W-1):0]   safe_key_r2;
-    reg [(W+P-2):0] safe_window_r2;
-    reg             enable_r2;
-    reg             clear_acc_r2;
-
-    always @(posedge clock) begin
-        if (sys_reset) begin
-            safe_key_r2    <= {W{1'b0}};
-            safe_window_r2 <= {(W+P-1){1'b0}};
-            enable_r2      <= 1'b0;
-            clear_acc_r2   <= 1'b0;
-        end else begin
-            safe_key_r2    <= safe_key_r;
-            safe_window_r2 <= safe_window_r;
-            enable_r2      <= enable_r;
-            clear_acc_r2   <= clear_acc_r;
-        end
-    end
-
-    // ============================================================
     // Controlador principal
     // ============================================================
     controlador #(
@@ -330,11 +300,11 @@ module top #(
         .clock         (clock),
         .reset         (sys_reset),
 
-        .clear_acc     (clear_acc_r2),
-        .enable        (enable_r2),
+        .clear_acc     (clear_acc_r),
+        .enable        (enable_r),
 
-        .key           (safe_key_r2),
-        .matrix_window (safe_window_r2),
+        .key           (safe_key_r),
+        .matrix_window (safe_window_r),
 
         .hash_out      (current_hash_out)
     );
