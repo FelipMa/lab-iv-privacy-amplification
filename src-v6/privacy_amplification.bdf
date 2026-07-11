@@ -23,7 +23,7 @@ refer to the applicable agreement for further details.
 	(input)
 	(rect -24 432 144 448)
 	(text "INPUT" (rect 125 0 153 10)(font "Arial" (font_size 6)))
-	(text "CLOCK_50" (rect 5 0 61 12)(font "Arial" ))
+	(text "CLOCK_50" (rect 5 0 60 12)(font "Arial" ))
 	(pt 168 8)
 	(drawing
 		(line (pt 84 12)(pt 109 12))
@@ -40,7 +40,7 @@ refer to the applicable agreement for further details.
 	(input)
 	(rect 176 520 344 536)
 	(text "INPUT" (rect 125 0 153 10)(font "Arial" (font_size 6)))
-	(text "SW[0]" (rect 5 0 36 12)(font "Arial" ))
+	(text "SW[0]" (rect 5 0 35 12)(font "Arial" ))
 	(pt 168 8)
 	(drawing
 		(line (pt 84 12)(pt 109 12))
@@ -183,10 +183,20 @@ refer to the applicable agreement for further details.
 		"000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001"
 		""
 		(type "PARAMETER_UNSIGNED_BIN")	)
+	(parameter
+		"USE_LFSR_SEED"
+		"1"
+		""
+		(type "PARAMETER_SIGNED_DEC")	)
+	(parameter
+		"LFSR_INIT"
+		"10101100111000010010101101111101"
+		""
+		(type "PARAMETER_UNSIGNED_BIN")	)
 	(drawing
 		(rectangle (rect 16 16 184 96))
 	)
-	(annotation_block (parameter)(rect 592 256 1658 408))
+	(annotation_block (parameter)(rect 592 216 1680 408))
 )
 (connector
 	(pt 312 440)
