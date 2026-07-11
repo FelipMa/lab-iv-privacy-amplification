@@ -1,498 +1,469 @@
 `timescale 1ns/1ps
 
+// -----------------------------------------------------------------------------
+// seed_generator
+// -----------------------------------------------------------------------------
+// Versao em rajadas sincronizadas de AES, corrigida para evitar escrita seletiva
+// em window_reg controlada por init_chunk_count.
+//
+// Mudanca principal em relacao a versao burst11_simple:
+//   - A janela inicial NAO e mais carregada com:
+//         window_reg[(init_chunk_count*SLOT_BITS)+i] <= ...
+//     pois isso faz init_chunk_count controlar muxes/enables para muitos bits.
+//   - Agora cada chunk e inserido na janela por um deslocamento FIXO:
+//         window_reg <= append_chunk_to_window(window_reg, chunk_bits_r)
+//     Assim, init_chunk_count apenas decide se ainda estamos no warmup da janela,
+//     mas nao escolhe posicoes variaveis dentro de window_reg.
+//   - Tambem foi inserido um registrador chunk_bits_r entre a saida AES e a
+//     escrita em window_reg/slots, separando a selecao dos bits uteis da escrita
+//     da janela.
+//
+// Arquitetura:
+//   11 AES em paralelo (para W=64, AES_CYCLES=20)
+//       -> chunk de SLOT_BITS = AES_CYCLES*W bits uteis
+//       -> window_reg recebe chunks por shift fixo no warmup
+//       -> active_slot / standby_slot recebem chunks inteiros
+//       -> durante RUN, window_reg desliza W bits por ciclo e recebe a proxima
+//          palavra W do active_slot.
+//
+// Observacao:
+//   - Esta versao instancia AES diretamente, e nao CTR_seed_controller, para
+//     controlar rajadas de um unico bloco por lane.
+//   - A interface externa foi mantida igual ao top.v atual.
+// -----------------------------------------------------------------------------
+
 module seed_generator #(
-    parameter N              = 640,
-    parameter L              = 64,
-    parameter W              = 64,
-    parameter P              = 32,
-    parameter AES_CYCLES     = 20,
-    parameter BITS_PER_AES   = 128
+    parameter integer N              = 640,
+    parameter integer L              = 64,
+    parameter integer W              = 64,
+    parameter integer P              = 32,
+
+    parameter integer AES_CYCLES     = 20,
+    parameter integer BITS_PER_AES   = 128,
+
+    // Para W=64 e AES_CYCLES=20:
+    // ceil((20*64 + 127)/128) = 11 AES.
+    parameter integer AES_QTD        = ((AES_CYCLES * W + 127) + BITS_PER_AES - 1) / BITS_PER_AES,
+
+    parameter integer WIN            = W + P - 1,
+
+    // Cada rajada gera exatamente os bits necessarios para AES_CYCLES ciclos.
+    parameter integer SLOT_WORDS     = AES_CYCLES,
+    parameter integer SLOT_BITS      = SLOT_WORDS * W,
+
+    // A janela fisica e arredondada para multiplo de SLOT_WORDS para que o
+    // warmup seja feito por chunks inteiros, sem escrita em posicao variavel.
+    parameter integer WINDOW_WORDS_MIN = (WIN + W - 1) / W,
+    parameter integer WINDOW_CHUNKS    = (WINDOW_WORDS_MIN + SLOT_WORDS - 1) / SLOT_WORDS,
+    parameter integer WINDOW_PAD_WORDS = WINDOW_CHUNKS * SLOT_WORDS,
+    parameter integer WINDOW_PAD_BITS  = WINDOW_PAD_WORDS * W,
+
+    parameter integer INDEX_BITS     = 32,
+    parameter integer AES_MSB_FIRST  = 1,
+
+    parameter integer CYCLES_PER_BATCH = (N + W - 1) / W,
+    parameter integer TOTAL_BATCHES    = (L + P - 1) / P
 )(
-    input  wire                  clock,
-    input  wire                  reset_n,
+    input  wire           clock,
+    input  wire           reset_n,
 
-    input  wire                  prepare,
-    input  wire [127:0]          key,
-    input  wire [95:0]           nonce,
-    input  wire                  go,
+    input  wire           prepare,
+    input  wire [127:0]   key,
+    input  wire [95:0]    nonce,
+    input  wire           go,
 
-    output wire                  ready_to_stream,
-    output wire [W+P-2:0]        matrix_window,
-    output wire                  busy
+    output wire           ready_to_stream,
+    output wire [WIN-1:0] matrix_window,
+    output wire           busy
 );
+	 // -------------------------------------------------------------------------
+    // Janela e slots
+    // -------------------------------------------------------------------------
+    reg [WINDOW_PAD_BITS-1:0] window_reg;
+    reg [SLOT_BITS-1:0]       active_slot;
+    reg [SLOT_BITS-1:0]       standby_slot;
+    reg                       standby_valid;
 
-    // ============================================================
-    // Parametrizacao e constantes derivadas
-    // ============================================================
-    localparam CYCLES       = (N + W - 1) / W;
-    localparam BATCHES      = (L + P - 1) / P;
-    localparam WIN          = W + P - 1;
+    reg [31:0] init_chunk_count;
+    reg        active_loaded;
 
-    // Quantidade de instancias AES necessarias para sustentar, em regime,
-    // uma janela consumida a cada ciclo. A arquitetura assume W <= 128.
-    localparam AES_QTD      = (W * AES_CYCLES + 127) / 128;
-    localparam AES_INTERVAL = (W >= 128) ? 1 : (128 / W);
+    // Chunk registrado entre AES e escrita na janela/slots.
+    reg [SLOT_BITS-1:0] chunk_bits_r;
+    reg                 chunk_valid_r;
 
-    // Para nao expor uma janela invalida logo apos o warmup, o registrador de
-    // janela precisa cobrir tambem os ciclos sem chegada de novo bloco AES.
-    // A margem extra de 3*W cobre os 3 ciclos de pipeline adicionados:
-    // leitura da FIFO -> gearbox (pending_valid), resolucao do alinhamento
-    // por offset (insert_pending) e gearbox -> janela (win_pending_valid),
-    // todos abaixo.
-    localparam WARMUP_BITS  = WIN + ((AES_INTERVAL > 0) ? ((AES_INTERVAL - 1) * W) : 0) + (3 * W);
+    // -------------------------------------------------------------------------
+    // Funcoes auxiliares
+    // -------------------------------------------------------------------------
+    function integer clog2_int;
+        input integer value;
+        integer v;
+        begin
+            v = value - 1;
+            clog2_int = 0;
+            while (v > 0) begin
+                v = v >> 1;
+                clog2_int = clog2_int + 1;
+            end
+        end
+    endfunction
 
-    // ------------------------------------------------------------
-    // Buffer em 3 estagios, todos com deslocamento de largura fixa ou de
-    // granularidade grande (nunca bit-a-bit sobre milhares de bits, que era
-    // a causa do caminho critico do buffer monolitico anterior):
-    //
-    //   FIFO de staging (128b/slot, sem shift, so indexacao) ->
-    //   gearbox (256b, unico shift variavel, confinado a <=128 posicoes) ->
-    //   registrador de janela (WINREG bits, shift sempre em multiplos de W)
-    // ------------------------------------------------------------
-    localparam FIFO_DEPTH     = (AES_QTD + 2 < 4) ? 4 : (AES_QTD + 2);
-    localparam FIFO_PTR_BITS  = $clog2(FIFO_DEPTH);
-    localparam FIFO_CNT_BITS  = $clog2(FIFO_DEPTH + 1);
+    function [INDEX_BITS-1:0] batch_start_idx_fn;
+        input [31:0] batch;
+        begin
+            // Para matriz de Hankel, o lote b comeca em b*P.
+            batch_start_idx_fn = batch * P;
+        end
+    endfunction
 
-    // GB_WIDTH e so o "container" fisico: precisa caber com folga o que
-    // estiver em transito ao mesmo tempo (ate 2 palavras de 128b, uma em
-    // pending_valid e outra em insert_pending) mais o que gb_has_room
-    // permite acumular (128b, ver abaixo) - o limiar operacional continua
-    // baixo de proposito, pra manter o deslocamento de insercao em gb_reg
-    // barato (poucas posicoes possiveis), so o container cresceu.
-    localparam GB_WIDTH       = 512;
-    localparam GB_CNT_BITS    = $clog2(GB_WIDTH + 1);
+    function [31:0] counter_from_bit_idx_fn;
+        input [INDEX_BITS-1:0] idx;
+        begin
+            counter_from_bit_idx_fn = idx >> 7; // divide por 128
+        end
+    endfunction
 
-    localparam WINREG         = W * (((WARMUP_BITS + W - 1) / W) + 1);
-    localparam WIN_CNT_BITS   = $clog2(WINREG + 1);
+    function [6:0] offset_from_bit_idx_fn;
+        input [INDEX_BITS-1:0] idx;
+        begin
+            offset_from_bit_idx_fn = idx[6:0]; // mod 128
+        end
+    endfunction
 
-    // ============================================================
-    // Estados da FSM principal
-    // ============================================================
-    localparam S_IDLE       = 3'd0;
-    localparam S_CALC_START = 3'd1;
-    localparam S_WARMUP     = 3'd2;
-    localparam S_STREAMING  = 3'd3;
-    localparam S_DONE       = 3'd4;
+    // Le um bit do conjunto de blocos AES da rajada.
+    // stream_pos e a posicao dentro da concatenacao:
+    // AES(base+0) || AES(base+1) || ...
+    function get_burst_stream_bit;
+        input [(AES_QTD*128)-1:0] blocks_flat;
+        input integer stream_pos;
+        integer block_idx;
+        integer bit_idx;
+        integer flat_idx;
+        begin
+            block_idx = stream_pos / 128;
+            bit_idx   = stream_pos - (block_idx * 128);
 
-    localparam CYCLES_BITS  = $clog2(CYCLES);
-    localparam BATCHES_BITS = $clog2(BATCHES);
+            if (AES_MSB_FIRST != 0)
+                flat_idx = (block_idx * 128) + (127 - bit_idx);
+            else
+                flat_idx = (block_idx * 128) + bit_idx;
 
-    reg [2:0]              state;
-    reg [BATCHES_BITS:0]   batch_idx;
-    reg [CYCLES_BITS:0]    cycles_done;
+            get_burst_stream_bit = blocks_flat[flat_idx];
+        end
+    endfunction
 
-    wire [63:0] calc_start_idx    = batch_idx * P;
-    wire [31:0] calc_base_counter = calc_start_idx[63:7]; // start_idx / 128
-    wire [6:0]  calc_offset       = calc_start_idx[6:0];  // start_idx % 128
+    // Insere um chunk inteiro no topo da janela usando deslocamento fixo.
+    // Depois de WINDOW_CHUNKS insercoes, o chunk mais antigo fica nos bits baixos,
+    // que sao os bits vistos por matrix_window.
+    function [WINDOW_PAD_BITS-1:0] append_chunk_to_window;
+        input [WINDOW_PAD_BITS-1:0] win;
+        input [SLOT_BITS-1:0]       chunk;
+        integer f;
+        begin
+            append_chunk_to_window = {WINDOW_PAD_BITS{1'b0}};
 
-    reg [31:0] base_counter;
-    reg [6:0]  offset;
-    reg        is_first_block;
+            // Parte antiga desloca para baixo por SLOT_BITS.
+            for (f = 0; f < (WINDOW_PAD_BITS - SLOT_BITS); f = f + 1) begin
+                append_chunk_to_window[f] = win[f + SLOT_BITS];
+            end
 
-    // ============================================================
-    // Registrador de janela (saida) e FSM auxiliares
-    // ============================================================
-    reg [WINREG-1:0]      window_reg;
-    reg [WIN_CNT_BITS-1:0] win_valid_bits;
+            // Novo chunk entra no topo.
+            for (f = 0; f < SLOT_BITS; f = f + 1) begin
+                append_chunk_to_window[(WINDOW_PAD_BITS - SLOT_BITS) + f] = chunk[f];
+            end
+        end
+    endfunction
 
-    assign matrix_window   = window_reg[WIN-1:0];
-    assign ready_to_stream = (state == S_STREAMING) && (win_valid_bits >= WIN[WIN_CNT_BITS-1:0]);
+    // Avanca a janela de streaming em W bits e insere uma palavra W no topo.
+    function [WINDOW_PAD_BITS-1:0] append_word_to_window;
+        input [WINDOW_PAD_BITS-1:0] win;
+        input [W-1:0]               word;
+        integer f;
+        begin
+            append_word_to_window = {WINDOW_PAD_BITS{1'b0}};
+
+            // Descarta os W bits mais antigos e desloca o restante para baixo.
+            for (f = 0; f < (WINDOW_PAD_BITS - W); f = f + 1) begin
+                append_word_to_window[f] = win[f + W];
+            end
+
+            // Palavra nova entra no topo.
+            for (f = 0; f < W; f = f + 1) begin
+                append_word_to_window[(WINDOW_PAD_BITS - W) + f] = word[f];
+            end
+        end
+    endfunction
+
+    localparam [31:0] SLOT_WORDS_32       = SLOT_WORDS;
+    localparam [31:0] WINDOW_CHUNKS_32    = WINDOW_CHUNKS;
+    localparam [31:0] CYCLES_PER_BATCH_32 = CYCLES_PER_BATCH;
+    localparam [31:0] TOTAL_BATCHES_32    = TOTAL_BATCHES;
+
+    // -------------------------------------------------------------------------
+    // Estados
+    // -------------------------------------------------------------------------
+    localparam S_IDLE  = 3'd0;
+    localparam S_RESET = 3'd1;
+    localparam S_INIT  = 3'd2;
+    localparam S_RUN   = 3'd3;
+    localparam S_WAIT  = 3'd4;
+    localparam S_DONE  = 3'd5;
+
+    reg [2:0] state;
+
     assign busy            = (state != S_IDLE) && (state != S_DONE);
+    assign ready_to_stream = (state == S_RUN);
+    assign matrix_window   = window_reg[WIN-1:0];
 
-    wire stream_fire = go && ready_to_stream;
-    wire aes_active  = (state == S_WARMUP) || (state == S_STREAMING);
-    wire aes_reset_n = reset_n & ~(state == S_CALC_START);
+    // -------------------------------------------------------------------------
+    // Controle de lote e slot
+    // -------------------------------------------------------------------------
+    reg [31:0]           batch_idx;
+    reg [31:0]           cycle_in_batch;
+    reg [31:0]           slot_word_idx;
+    reg [INDEX_BITS-1:0] batch_start_idx;
 
-    // ============================================================
-    // AES lanes
-    // ============================================================
-    reg  [AES_QTD-1:0] aes_input_valid;
-    reg  [127:0]       aes_input_block_array [0:AES_QTD-1];
-    wire [127:0]       aes_out_block_array   [0:AES_QTD-1];
-    wire [AES_QTD-1:0] aes_ready;
-    wire [AES_QTD-1:0] aes_out_valid;
+    wire consume_fire;
+    wire last_cycle_in_batch;
+    wire last_batch;
+    wire slot_end_fire;
 
-    genvar gi;
+    assign consume_fire        = (state == S_RUN) && go;
+    assign last_cycle_in_batch = consume_fire && (cycle_in_batch == (CYCLES_PER_BATCH_32 - 32'd1));
+    assign last_batch          = (batch_idx == (TOTAL_BATCHES_32 - 32'd1));
+    assign slot_end_fire       = consume_fire && (slot_word_idx == (SLOT_WORDS_32 - 32'd1));
+
+    // -------------------------------------------------------------------------
+    // AES em rajada
+    // -------------------------------------------------------------------------
+    wire aes_local_reset_n;
+    assign aes_local_reset_n = reset_n && (state != S_RESET);
+
+    reg [31:0] aes_next_word_start;
+    reg [31:0] aes_current_word_start;
+
+    wire [INDEX_BITS-1:0] aes_next_bit_start;
+    wire [31:0]           aes_next_base_counter;
+
+    assign aes_next_bit_start    = batch_start_idx + (aes_next_word_start * W);
+    assign aes_next_base_counter = counter_from_bit_idx_fn(aes_next_bit_start);
+
+    wire aes_feed_enable;
+    assign aes_feed_enable = (state == S_INIT) || (state == S_RUN);
+
+    wire [AES_QTD-1:0]       aes_input_ready;
+    wire [AES_QTD-1:0]       aes_output_valid;
+    wire [(AES_QTD*128)-1:0] aes_output_block_flat;
+
+    wire all_aes_ready;
+    wire all_aes_output_valid;
+    wire aes_accept_burst;
+
+    assign all_aes_ready        = &aes_input_ready;
+    assign all_aes_output_valid = &aes_output_valid;
+    assign aes_accept_burst     = aes_feed_enable && all_aes_ready;
+
+    genvar ai;
     generate
-        for (gi = 0; gi < AES_QTD; gi = gi + 1) begin : aes_lanes
-            AES u_aes (
+        for (ai = 0; ai < AES_QTD; ai = ai + 1) begin : gen_aes_lanes
+            wire [127:0] aes_out_block;
+            wire [31:0]  lane_counter;
+
+            localparam [31:0] LANE_OFFSET = ai;
+
+            assign lane_counter = aes_next_base_counter + LANE_OFFSET;
+
+            AES u_aes_lane (
                 .clock        (clock),
-                .reset_n      (aes_reset_n),
-                .input_valid  (aes_input_valid[gi]),
-                .input_block  (aes_input_block_array[gi]),
-                .input_ready  (aes_ready[gi]),
+                .reset_n      (aes_local_reset_n),
+
+                .input_valid  (aes_feed_enable),
+                .input_block  ({nonce, lane_counter}),
+                .input_ready  (aes_input_ready[ai]),
+
                 .key          (key),
-                .output_block (aes_out_block_array[gi]),
-                .output_valid (aes_out_valid[gi]),
+
+                .output_block (aes_out_block),
+                .output_valid (aes_output_valid[ai]),
                 .busy         ()
             );
+
+            assign aes_output_block_flat[ai*128 +: 128] = aes_out_block;
         end
     endgenerate
 
-    // ============================================================
-    // Captura combinacional das saidas AES
-    // Como os lancamentos sao escalonados, espera-se no maximo um
-    // output_valid por ciclo. Caso duas lanes coincidam, a de maior indice
-    // prevalece; o testbench acusa desalinhamento se isso afetar a ordem.
-    // ============================================================
-    reg         captured_valid;
-    reg [127:0] captured_block;
-    integer idx;
+    // -------------------------------------------------------------------------
+    // Conversao da rajada AES para chunk util
+    // -------------------------------------------------------------------------
+    wire [INDEX_BITS-1:0] current_chunk_bit_start;
+    wire [6:0]            current_chunk_offset;
+
+    assign current_chunk_bit_start = batch_start_idx + (aes_current_word_start * W);
+    assign current_chunk_offset    = offset_from_bit_idx_fn(current_chunk_bit_start);
+
+    reg [SLOT_BITS-1:0] chunk_bits_comb;
+    integer cb_i;
 
     always @(*) begin
-        captured_valid = 1'b0;
-        captured_block = 128'd0;
-        for (idx = 0; idx < AES_QTD; idx = idx + 1) begin
-            if (aes_out_valid[idx]) begin
-                captured_valid = 1'b1;
-                captured_block = aes_out_block_array[idx];
-            end
+        for (cb_i = 0; cb_i < SLOT_BITS; cb_i = cb_i + 1) begin
+            chunk_bits_comb[cb_i] = get_burst_stream_bit(
+                aes_output_block_flat,
+                current_chunk_offset + cb_i
+            );
         end
     end
 
-    // Registra a saida do mux de prioridade das lanes AES antes de usa-la
-    // para escrever na FIFO: sem isso, o mux 10:1 de 128 bits ficava
-    // encadeado no mesmo ciclo com a escrita indexada em 1-de-FIFO_DEPTH
-    // slots, virando o novo caminho critico depois das correcoes anteriores.
-    reg         captured_valid_r;
-    reg [127:0] captured_block_r;
-
-    always @(posedge clock) begin
-        if (!reset_n || state == S_CALC_START) begin
-            // Descarta explicitamente qualquer output_valid tardio do rabo
-            // do lote anterior (mesmo efeito que o design original tinha
-            // "de graca": a escrita na FIFO so roda no branch
-            // S_WARMUP/S_STREAMING, entao um pulso chegando durante
-            // S_CALC_START nunca era escrito). Sem isso, esse pulso
-            // sobreviveria 1 ciclo no registrador e contaminaria o
-            // fifo_mem[0] do lote novo.
-            captured_valid_r <= 1'b0;
-            captured_block_r <= 128'd0;
-        end else begin
-            captured_valid_r <= captured_valid;
-            captured_block_r <= captured_block;
-        end
-    end
-
-    // ============================================================
-    // FIFO de staging: cada bloco AES capturado vai para um slot indexado
-    // por ponteiro (sem shift nenhum). Substitui o antigo controle de
-    // "espaco restante" em bits por uma contagem de slots livres.
-    // ============================================================
-    (* ramstyle = "logic" *) reg [127:0] fifo_mem [0:FIFO_DEPTH-1];
-    reg [FIFO_PTR_BITS-1:0]  fifo_wr_ptr;
-    reg [FIFO_PTR_BITS-1:0]  fifo_rd_ptr;
-    reg [FIFO_CNT_BITS-1:0]  fifo_count;
-
-    wire [127:0] fifo_rd_data = fifo_mem[fifo_rd_ptr];
-
-    // ============================================================
-    // Gearbox: registrador de 256 bits que absorve o (unico) shift de
-    // distancia variavel do sistema, confinado a no maximo 128 posicoes,
-    // e monta o fluxo de W bits/ciclo a partir das palavras de 128 bits da
-    // FIFO. O alinhamento de offset do primeiro bloco do lote e aplicado
-    // aqui, uma vez por lote.
-    //
-    // A leitura da FIFO (fifo_rd_ptr -> mux -> shift-insere em gb_reg) e
-    // dividida em 2 estagios de registrador (pending_*) para nao encadear o
-    // mux de leitura com o barrel shift no mesmo ciclo: isso so adiciona 1
-    // ciclo de latencia por palavra, nao reduz o throughput (um pop pode
-    // ser emitido a cada ciclo, o pipeline nao trava).
-    // ============================================================
-    reg [GB_WIDTH-1:0]     gb_reg;
-    reg [GB_CNT_BITS-1:0]  gb_valid_bits;
-
-    reg         pending_valid;
-    reg [127:0] pending_word;
-    reg         pending_is_first;
-
-    // O mux de alinhamento por offset (pending_word >> offset) e recalculado
-    // TODO ciclo que ha um pending_valid, mesmo quando nao e o primeiro bloco
-    // do lote (o hardware nao sabe que so importa 1x/lote) - encadeado com o
-    // insert em gb_reg, isso virou o caminho critico quando outros gargalos
-    // foram resolvidos. Registra o resultado (ja resolvido) num estagio a
-    // mais antes do insert, uniformemente para todas as palavras (nao so a
-    // primeira, para nao arriscar reordenar o stream).
-    reg         insert_pending;
-    reg [127:0] insert_word;
-    reg [7:0]   insert_w_comb;
-
-    wire [7:0]   w_comb           = (pending_is_first) ? (8'd128 - {1'b0, offset}) : 8'd128;
-    wire [127:0] padded_data_comb = (pending_is_first) ? (pending_word >> offset) : pending_word;
-    wire [GB_WIDTH-1:0] padded_data_ext = {{(GB_WIDTH-128){1'b0}}, insert_word};
-
-    // Reserva espaco para as palavras ainda em transito (lidas da FIFO mas
-    // nao inseridas no gearbox): uma pode estar em pending_valid (aguardando
-    // o alinhamento por offset resolver) e outra em insert_pending
-    // (alinhamento ja resolvido, aguardando insercao). O limiar (128) e o
-    // mesmo de antes - GB_WIDTH so cresceu para dar espaco fisico a essas
-    // reservas sem estourar o container.
-    wire gb_has_room = (gb_valid_bits
-                            + (pending_valid ? 9'd128 : 9'd0)
-                            + (insert_pending ? 9'd128 : 9'd0)) <= 9'd128;
-    wire fifo_pop     = (state == S_STREAMING || state == S_WARMUP) &&
-                        (fifo_count != 0) && gb_has_room;
-
-    // Estagio 1 (decisao) / estagio 2 (insercao) tambem para gearbox -> janela,
-    // mesma tecnica: com P grande, WINREG cresce proporcional a P e o mux de
-    // insercao no window_reg (posicoes multiplas de W, mas ha muitas quando
-    // WINREG e grande) encadeado com o comparador win_valid_bits+W<=WINREG no
-    // mesmo ciclo virou o novo caminho critico. Registra o pedaco de W bits
-    // (win_pending_chunk) antes de inseri-lo, e reserva espaco para ele no
-    // capacity check (mesmo padrao de pending_valid/gb_has_room).
-    reg       win_pending_valid;
-    reg [W-1:0] win_pending_chunk;
-
-    wire win_has_room = (win_valid_bits + (win_pending_valid ? W : 0))
-                            <= (WINREG[WIN_CNT_BITS-1:0] - W);
-    wire feed_window  = (state == S_STREAMING || state == S_WARMUP) &&
-                        (gb_valid_bits >= W) && win_has_room;
-
-    // ============================================================
-    // Feeder dos AES em modo CTR intercalado
-    // ============================================================
-    localparam LANE_BITS = (AES_QTD > 1) ? $clog2(AES_QTD) : 1;
-
-    reg [31:0]              current_aes_counter;
-    reg [LANE_BITS-1:0]     lane_to_feed;
-    reg [7:0]               timer_interval;
-    reg [FIFO_CNT_BITS-1:0] blocks_in_flight;
-
-    // Decisao (can_launch, que le aes_ready[lane_to_feed] - um mux 10:1 sobre
-    // o round/fsm de cada lane) e execucao (escrita indexada em
-    // aes_input_block_array/aes_input_valid) ficavam encadeadas no mesmo
-    // ciclo, virando o novo caminho critico apos as correcoes anteriores.
-    // Mesma tecnica de pending_valid/captured_valid_r: separa em 2 estagios.
-    reg                  launch_pending;
-    reg [LANE_BITS-1:0]  launch_lane;
-    reg [31:0]           launch_counter;
-
-    wire can_launch = aes_active && (timer_interval == 0) &&
-                      aes_ready[lane_to_feed] &&
-                      ((fifo_count + blocks_in_flight) < FIFO_DEPTH[FIFO_CNT_BITS-1:0]);
-
+    // -------------------------------------------------------------------------
+    // Controle sequencial
+    // -------------------------------------------------------------------------
     always @(posedge clock) begin
         if (!reset_n) begin
-            aes_input_valid     <= {AES_QTD{1'b0}};
-            lane_to_feed        <= 0;
-            timer_interval      <= 0;
-            current_aes_counter <= 0;
-            blocks_in_flight    <= 0;
-            launch_pending       <= 1'b0;
-            launch_lane          <= 0;
-            launch_counter        <= 0;
-        end else if (state == S_CALC_START) begin
-            aes_input_valid     <= {AES_QTD{1'b0}};
-            lane_to_feed        <= 0;
-            timer_interval      <= 0;
-            current_aes_counter <= calc_base_counter;
-            blocks_in_flight    <= 0;
-            launch_pending       <= 1'b0;
-            launch_lane          <= 0;
-            launch_counter        <= 0;
-        end else if (aes_active) begin
-            // Estagio 2: comete a decisao registrada no ciclo anterior.
-            aes_input_valid <= {AES_QTD{1'b0}};
-            if (launch_pending) begin
-                aes_input_valid[launch_lane]       <= 1'b1;
-                aes_input_block_array[launch_lane] <= {nonce, launch_counter};
-            end
+            state                  <= S_IDLE;
+            batch_idx              <= 32'd0;
+            cycle_in_batch         <= 32'd0;
+            slot_word_idx          <= 32'd0;
+            batch_start_idx        <= {INDEX_BITS{1'b0}};
 
-            // Estagio 1: decide e reserva (lane/contador/timer avancam aqui,
-            // igual antes; so a escrita de fato foi para o estagio 2).
-            launch_pending <= can_launch;
+            // Registradores grandes propositalmente nao sao zerados no reset.
+            // Eles sao completamente sobrescritos no warmup antes de ready_to_stream.
+            standby_valid          <= 1'b0;
+            init_chunk_count       <= 32'd0;
+            active_loaded          <= 1'b0;
+            chunk_valid_r          <= 1'b0;
 
-            if (can_launch && !captured_valid_r)
-                blocks_in_flight <= blocks_in_flight + 1;
-            else if (!can_launch && captured_valid_r && (blocks_in_flight != 0))
-                blocks_in_flight <= blocks_in_flight - 1;
-
-            if (can_launch) begin
-                launch_lane          <= lane_to_feed;
-                launch_counter       <= current_aes_counter;
-                current_aes_counter  <= current_aes_counter + 1;
-
-                if (lane_to_feed == AES_QTD - 1)
-                    lane_to_feed <= 0;
-                else
-                    lane_to_feed <= lane_to_feed + 1;
-
-                timer_interval <= (AES_INTERVAL > 0) ? (AES_INTERVAL - 1) : 0;
-            end else if (timer_interval > 0) begin
-                timer_interval <= timer_interval - 1;
-            end
+            aes_next_word_start    <= 32'd0;
+            aes_current_word_start <= 32'd0;
         end else begin
-            aes_input_valid <= {AES_QTD{1'b0}};
-        end
-    end
 
-    // ============================================================
-    // Proximo valor do gearbox e do registrador de janela
-    // ============================================================
-    reg [GB_WIDTH-1:0]      next_gb;
-    reg [GB_CNT_BITS-1:0]   next_gb_valid;
-    reg [WINREG-1:0]        next_win;
-    reg [WIN_CNT_BITS-1:0]  next_win_valid;
-
-    always @(*) begin
-        next_gb        = gb_reg;
-        next_gb_valid  = gb_valid_bits;
-        next_win       = window_reg;
-        next_win_valid = win_valid_bits;
-
-        if (state == S_STREAMING || state == S_WARMUP) begin
-            if (stream_fire) begin
-                next_win       = next_win >> W;
-                next_win_valid = next_win_valid - W;
+            // Metadado da rajada aceita pelo AES.
+            if (aes_accept_burst) begin
+                aes_current_word_start <= aes_next_word_start;
+                aes_next_word_start    <= aes_next_word_start + SLOT_WORDS_32;
             end
 
-            if (win_pending_valid) begin
-                next_win       = next_win | ({{(WINREG-W){1'b0}}, win_pending_chunk} << next_win_valid);
-                next_win_valid = next_win_valid + W;
+            // Registra o chunk vindo dos AES. Normalmente nao ha colisao, pois os
+            // chunks chegam a cada AES_CYCLES ciclos e sao consumidos bem antes.
+            if (all_aes_output_valid) begin
+                chunk_bits_r  <= chunk_bits_comb;
+                chunk_valid_r <= 1'b1;
             end
 
-            if (feed_window) begin
-                next_gb       = next_gb >> W;
-                next_gb_valid = next_gb_valid - W;
-            end
-
-            if (insert_pending) begin
-                next_gb       = next_gb | (padded_data_ext << next_gb_valid);
-                next_gb_valid = next_gb_valid + insert_w_comb;
-            end
-        end
-    end
-
-    // ============================================================
-    // FSM principal
-    // ============================================================
-    always @(posedge clock) begin
-        if (!reset_n) begin
-            state          <= S_IDLE;
-            batch_idx      <= 0;
-            cycles_done    <= 0;
-            base_counter   <= 0;
-            offset         <= 0;
-            is_first_block <= 1'b1;
-
-            fifo_wr_ptr    <= 0;
-            fifo_rd_ptr    <= 0;
-            fifo_count     <= 0;
-            gb_reg         <= 0;
-            gb_valid_bits  <= 0;
-            window_reg     <= 0;
-            win_valid_bits <= 0;
-            pending_valid  <= 1'b0;
-            pending_word   <= 0;
-            pending_is_first <= 1'b0;
-            insert_pending <= 1'b0;
-            insert_word    <= 0;
-            insert_w_comb  <= 0;
-            win_pending_valid <= 1'b0;
-            win_pending_chunk <= 0;
-        end else begin
             case (state)
+
                 S_IDLE: begin
                     if (prepare) begin
-                        batch_idx <= 0;
-                        state     <= S_CALC_START;
+                        batch_idx <= 32'd0;
+                        state     <= S_RESET;
                     end
                 end
 
-                S_CALC_START: begin
-                    base_counter   <= calc_base_counter;
-                    offset         <= calc_offset;
-                    cycles_done    <= 0;
-                    is_first_block <= 1'b1;
+                S_RESET: begin
+                    // Reinicio logico de lote. Os registradores de dados serao
+                    // sobrescritos durante S_INIT.
+                    batch_start_idx        <= batch_start_idx_fn(batch_idx);
+                    cycle_in_batch         <= 32'd0;
+                    slot_word_idx          <= 32'd0;
+                    init_chunk_count       <= 32'd0;
+                    active_loaded          <= 1'b0;
+                    standby_valid          <= 1'b0;
+                    chunk_valid_r          <= 1'b0;
+                    aes_next_word_start    <= 32'd0;
+                    aes_current_word_start <= 32'd0;
 
-                    fifo_wr_ptr    <= 0;
-                    fifo_rd_ptr    <= 0;
-                    fifo_count     <= 0;
-                    gb_reg         <= 0;
-                    gb_valid_bits  <= 0;
-                    window_reg     <= 0;
-                    win_valid_bits <= 0;
-                    pending_valid  <= 1'b0;
-                    pending_word   <= 0;
-                    pending_is_first <= 1'b0;
-                    insert_pending <= 1'b0;
-                    insert_word    <= 0;
-                    insert_w_comb  <= 0;
-                    win_pending_valid <= 1'b0;
-                    win_pending_chunk <= 0;
-
-                    state          <= S_WARMUP;
+                    state <= S_INIT;
                 end
 
-                S_WARMUP, S_STREAMING: begin
-                    gb_reg         <= next_gb;
-                    gb_valid_bits  <= next_gb_valid;
-                    window_reg     <= next_win;
-                    win_valid_bits <= next_win_valid;
+                S_INIT: begin
+                    if (chunk_valid_r) begin
+                        if (init_chunk_count < WINDOW_CHUNKS_32) begin
+                            // CORRECAO PRINCIPAL:
+                            // carrega janela inicial por shift fixo de chunk,
+                            // sem escrita em posicao variavel controlada por contador.
+                            window_reg       <= append_chunk_to_window(window_reg, chunk_bits_r);
+                            init_chunk_count <= init_chunk_count + 32'd1;
+                            chunk_valid_r    <= 1'b0;
 
-                    if (captured_valid_r) begin
-                        fifo_mem[fifo_wr_ptr] <= captured_block_r;
-                        fifo_wr_ptr           <= (fifo_wr_ptr == FIFO_DEPTH-1) ? 0 : fifo_wr_ptr + 1;
+                        end else if (!active_loaded) begin
+                            active_slot    <= chunk_bits_r;
+                            active_loaded  <= 1'b1;
+                            chunk_valid_r  <= 1'b0;
+
+                        end else if (!standby_valid) begin
+                            standby_slot   <= chunk_bits_r;
+                            standby_valid  <= 1'b1;
+                            chunk_valid_r  <= 1'b0;
+                            state          <= S_RUN;
+                        end
+                    end
+                end
+
+                S_RUN: begin
+                    // Se chegou um chunk novo, guarda como standby quando houver vaga.
+                    // Com a cadencia ideal, ele chega logo apos a promocao do slot.
+                    if (chunk_valid_r && !standby_valid) begin
+                        standby_slot  <= chunk_bits_r;
+                        standby_valid <= 1'b1;
+                        chunk_valid_r <= 1'b0;
                     end
 
-                    pending_valid <= fifo_pop;
+                    if (consume_fire) begin
+                        // A compression_unit amostra matrix_window nesta borda.
+                        // A proxima janela e preparada para o ciclo seguinte.
+                        window_reg  <= append_word_to_window(window_reg, active_slot[W-1:0]);
+                        active_slot <= {{W{1'b0}}, active_slot[SLOT_BITS-1:W]};
 
-                    // Resolve o alinhamento por offset (padded_data_comb/
-                    // w_comb) um ciclo antes de inserir em gb_reg, pra nao
-                    // encadear o shift-por-offset com o shift-de-insercao
-                    // no mesmo ciclo.
-                    insert_pending <= pending_valid;
-                    if (pending_valid) begin
-                        insert_word   <= padded_data_comb;
-                        insert_w_comb <= w_comb;
-                    end
+                        if (last_cycle_in_batch) begin
+                            cycle_in_batch <= 32'd0;
+                            slot_word_idx  <= 32'd0;
 
-                    win_pending_valid <= feed_window;
-                    if (feed_window)
-                        win_pending_chunk <= gb_reg[W-1:0];
-
-                    if (fifo_pop) begin
-                        fifo_rd_ptr      <= (fifo_rd_ptr == FIFO_DEPTH-1) ? 0 : fifo_rd_ptr + 1;
-                        pending_word     <= fifo_rd_data;
-                        pending_is_first <= is_first_block;
-
-                        if (is_first_block)
-                            is_first_block <= 1'b0;
-                    end
-
-                    case ({captured_valid_r, fifo_pop})
-                        2'b10:   fifo_count <= fifo_count + 1'b1;
-                        2'b01:   fifo_count <= fifo_count - 1'b1;
-                        default: fifo_count <= fifo_count;
-                    endcase
-
-                    if (stream_fire) begin
-                        if (cycles_done + 1 == CYCLES) begin
-                            if (batch_idx + 1 == BATCHES) begin
+                            if (last_batch) begin
                                 state <= S_DONE;
                             end else begin
-                                batch_idx <= batch_idx + 1;
-                                state     <= S_CALC_START;
+                                batch_idx <= batch_idx + 32'd1;
+                                state     <= S_RESET;
                             end
+
                         end else begin
-                            cycles_done <= cycles_done + 1;
+                            cycle_in_batch <= cycle_in_batch + 32'd1;
+
+                            if (slot_word_idx == (SLOT_WORDS_32 - 32'd1)) begin
+                                slot_word_idx <= 32'd0;
+
+                                if (standby_valid) begin
+                                    active_slot   <= standby_slot;
+                                    standby_valid <= 1'b0;
+                                end else begin
+                                    // Deve ser raro/impossivel se a cadencia AES estiver correta.
+                                    state <= S_WAIT;
+                                end
+                            end else begin
+                                slot_word_idx <= slot_word_idx + 32'd1;
+                            end
                         end
-                    end else if (state == S_WARMUP && next_win_valid >= WARMUP_BITS[WIN_CNT_BITS-1:0]) begin
-                        state <= S_STREAMING;
+                    end
+                end
+
+                S_WAIT: begin
+                    // Estado de seguranca. Aguarda um chunk registrado para retomar.
+                    if (chunk_valid_r) begin
+                        active_slot   <= chunk_bits_r;
+                        standby_valid <= 1'b0;
+                        chunk_valid_r <= 1'b0;
+                        slot_word_idx <= 32'd0;
+                        state         <= S_RUN;
                     end
                 end
 
                 S_DONE: begin
                     if (prepare) begin
-                        batch_idx <= 0;
-                        state     <= S_CALC_START;
+                        batch_idx <= 32'd0;
+                        state     <= S_RESET;
                     end
                 end
 
                 default: begin
                     state <= S_IDLE;
                 end
+
             endcase
         end
     end

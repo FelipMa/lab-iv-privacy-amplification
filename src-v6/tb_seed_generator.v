@@ -107,7 +107,7 @@ module tb_seed_generator;
                 aes_encrypt_counter(i[31:0], tmp_block);
                 for (bit_idx = 0; bit_idx < 128; bit_idx = bit_idx + 1) begin
                     if ((i * 128 + bit_idx) < REF_BITS)
-                        reference_stream[i * 128 + bit_idx] = tmp_block[bit_idx];
+                        reference_stream[i * 128 + bit_idx] = tmp_block[127 - bit_idx];
                 end
             end
         end
