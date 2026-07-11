@@ -12,10 +12,10 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 # PARAMETROS DO PROJETO
 # ============================================================
 
-W = 64
-P = 32
-N = 640
-L = 64
+N = 1200
+W = 128
+P = 660
+L = 660
 
 MASTER_SEED = 42
 

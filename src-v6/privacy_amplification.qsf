@@ -65,7 +65,7 @@ set_global_assignment -name EDA_TEST_BENCH_FILE tb_seed_generator.v -section_id 
 set_global_assignment -name EDA_TEST_BENCH_FILE tb_sistema_completo.v -section_id tb_sistema_completo
 set_global_assignment -name TIMING_ANALYZER_MULTICORNER_ANALYSIS OFF
 set_global_assignment -name SMART_RECOMPILE ON
-set_global_assignment -name NUM_PARALLEL_PROCESSORS ALL
+set_global_assignment -name NUM_PARALLEL_PROCESSORS 10
 set_location_assignment PIN_Y2 -to CLOCK_50
 set_location_assignment PIN_AG14 -to CLOCK2_50
 set_location_assignment PIN_AG15 -to CLOCK3_50

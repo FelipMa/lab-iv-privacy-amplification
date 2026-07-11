@@ -4,10 +4,10 @@ module top #(
     // ============================================================
     // Parametros globais do Privacy Amplification
     // ============================================================
-    parameter N = 640,
-    parameter W = 64,
-    parameter P = 32,
-    parameter L = 64,
+    parameter N = 1200,
+    parameter W = 128,
+    parameter P = 660,
+    parameter L = 660,
     // ============================================================
     // Parametros do Seed Generator AES-128 CTR
     // Atualize estes valores com os gerados pelo gerar_dados.py
@@ -178,6 +178,36 @@ module top #(
     end
 
     // ============================================================
+    // 2o registrador de fronteira (P grande, ex. P=660/W=128)
+    //
+    // safe_key_r/safe_window_r ja sao uma fonte estavel (registrada), mas
+    // em P grande o proprio roteamento ate as ~P instancias de hash_engine
+    // (fanout fisico, nao mais uma decisao tardia) mais a reducao AND/XOR
+    // de cada uma nao cabem num unico ciclo. Esse 2o estagio da ao
+    // sintetizador um ciclo inteiro soh para distribuir/duplicar
+    // fisicamente o sinal de fanout alto perto dos destinos, antes da
+    // reducao (agora local e curta) rodar no ciclo seguinte.
+    // ============================================================
+    reg [(W-1):0]   safe_key_r2;
+    reg [(W+P-2):0] safe_window_r2;
+    reg             enable_r2;
+    reg             clear_acc_r2;
+
+    always @(posedge clock) begin
+        if (sys_reset) begin
+            safe_key_r2    <= {W{1'b0}};
+            safe_window_r2 <= {(W+P-1){1'b0}};
+            enable_r2      <= 1'b0;
+            clear_acc_r2   <= 1'b0;
+        end else begin
+            safe_key_r2    <= safe_key_r;
+            safe_window_r2 <= safe_window_r;
+            enable_r2      <= enable_r;
+            clear_acc_r2   <= clear_acc_r;
+        end
+    end
+
+    // ============================================================
     // Controlador principal
     // ============================================================
     controlador #(
@@ -300,11 +330,11 @@ module top #(
         .clock         (clock),
         .reset         (sys_reset),
 
-        .clear_acc     (clear_acc_r),
-        .enable        (enable_r),
+        .clear_acc     (clear_acc_r2),
+        .enable        (enable_r2),
 
-        .key           (safe_key_r),
-        .matrix_window (safe_window_r),
+        .key           (safe_key_r2),
+        .matrix_window (safe_window_r2),
 
         .hash_out      (current_hash_out)
     );

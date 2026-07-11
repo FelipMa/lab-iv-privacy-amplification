@@ -64,6 +64,7 @@ module controlador #(
     localparam S_DONE     = 4'd6;
     localparam S_DRAIN2   = 4'd7;
     localparam S_GEN_SEED = 4'd8;
+    localparam S_DRAIN3   = 4'd9;
 
     reg [3:0] current_state, next_state;
 
@@ -166,13 +167,20 @@ module controlador #(
             end
 
             S_DRAIN: begin
-                // 1a bolha: atravessa o registrador de fronteira em top.v
+                // 1a bolha: atravessa o 1o registrador de fronteira em top.v
                 // (safe_key_r/safe_window_r/enable_r/clear_acc_r).
                 next_state = S_DRAIN2;
             end
 
             S_DRAIN2: begin
-                // 2a bolha: atravessa o pipeline interno de 2 estagios do hash_engine.
+                // 2a bolha: atravessa o 2o registrador de fronteira em top.v
+                // (safe_key_r2/safe_window_r2/enable_r2/clear_acc_r2, usado
+                // em P grande para dar espaco ao fanout ate os hash_engines).
+                next_state = S_DRAIN3;
+            end
+
+            S_DRAIN3: begin
+                // 3a bolha: atravessa o pipeline interno de 2 estagios do hash_engine.
                 next_state = S_CAPTURE;
             end
 

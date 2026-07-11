@@ -60,22 +60,22 @@ refer to the applicable agreement for further details.
 	)
 	(parameter
 		"N"
-		"640"
+		"1200"
 		""
 		(type "PARAMETER_SIGNED_DEC")	)
 	(parameter
 		"W"
-		"64"
+		"128"
 		""
 		(type "PARAMETER_SIGNED_DEC")	)
 	(parameter
 		"P"
-		"32"
+		"660"
 		""
 		(type "PARAMETER_SIGNED_DEC")	)
 	(parameter
 		"L"
-		"64"
+		"660"
 		""
 		(type "PARAMETER_SIGNED_DEC")	)
 	(parameter
