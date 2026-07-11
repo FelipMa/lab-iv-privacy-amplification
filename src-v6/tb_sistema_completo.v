@@ -9,6 +9,10 @@ module tb_sistema_completo;
     parameter AES_CYCLES = 20;
     parameter [127:0] SEED_KEY   = 128'h2B7E151628AED2A6ABF7158809CF4F3C;
     parameter [95:0]  SEED_NONCE = 96'h000000000000000000000001;
+    // Default 0: usa SEED_KEY/SEED_NONCE fixos, para bater com a chave final
+    // conhecida (validacao por regressao). Rode com -gUSE_LFSR_SEED=1 para
+    // exercitar o caminho da seed via LFSR.
+    parameter USE_LFSR_SEED = 0;
 
     localparam CYCLES  = (N + W - 1) / W;
     localparam BATCHES = (L + P - 1) / P;
@@ -32,7 +36,8 @@ module tb_sistema_completo;
         .L(L),
         .AES_CYCLES(AES_CYCLES),
         .SEED_KEY(SEED_KEY),
-        .SEED_NONCE(SEED_NONCE)
+        .SEED_NONCE(SEED_NONCE),
+        .USE_LFSR_SEED(USE_LFSR_SEED)
     ) uut_top (
         .clock(clock),
         .reset(reset),

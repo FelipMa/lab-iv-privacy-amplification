@@ -605,6 +605,7 @@ set_global_assignment -name VERILOG_FILE Input_Buffer.v
 set_global_assignment -name VERILOG_FILE hash_engine.v
 set_global_assignment -name VERILOG_FILE CTR_seed_controller.v
 set_global_assignment -name VERILOG_FILE controlador.v
+set_global_assignment -name VERILOG_FILE LFSR.v
 set_global_assignment -name VERILOG_FILE compression_unit.v
 set_global_assignment -name VERILOG_FILE aes_sbox_rom_2p.v
 set_global_assignment -name VERILOG_FILE AES.v
