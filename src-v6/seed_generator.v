@@ -35,9 +35,11 @@ module seed_generator #(
 
     // Para nao expor uma janela invalida logo apos o warmup, o registrador de
     // janela precisa cobrir tambem os ciclos sem chegada de novo bloco AES.
-    // A margem extra de W bits cobre o ciclo adicional de pipeline entre a
-    // leitura da FIFO e a insercao no gearbox (ver pending_valid abaixo).
-    localparam WARMUP_BITS  = WIN + ((AES_INTERVAL > 0) ? ((AES_INTERVAL - 1) * W) : 0) + W;
+    // A margem extra de 3*W cobre os 3 ciclos de pipeline adicionados:
+    // leitura da FIFO -> gearbox (pending_valid), resolucao do alinhamento
+    // por offset (insert_pending) e gearbox -> janela (win_pending_valid),
+    // todos abaixo.
+    localparam WARMUP_BITS  = WIN + ((AES_INTERVAL > 0) ? ((AES_INTERVAL - 1) * W) : 0) + (3 * W);
 
     // ------------------------------------------------------------
     // Buffer em 3 estagios, todos com deslocamento de largura fixa ou de
@@ -52,8 +54,14 @@ module seed_generator #(
     localparam FIFO_PTR_BITS  = $clog2(FIFO_DEPTH);
     localparam FIFO_CNT_BITS  = $clog2(FIFO_DEPTH + 1);
 
-    localparam GB_WIDTH       = 256;
-    localparam GB_CNT_BITS    = 9;
+    // GB_WIDTH e so o "container" fisico: precisa caber com folga o que
+    // estiver em transito ao mesmo tempo (ate 2 palavras de 128b, uma em
+    // pending_valid e outra em insert_pending) mais o que gb_has_room
+    // permite acumular (128b, ver abaixo) - o limiar operacional continua
+    // baixo de proposito, pra manter o deslocamento de insercao em gb_reg
+    // barato (poucas posicoes possiveis), so o container cresceu.
+    localparam GB_WIDTH       = 512;
+    localparam GB_CNT_BITS    = $clog2(GB_WIDTH + 1);
 
     localparam WINREG         = W * (((WARMUP_BITS + W - 1) / W) + 1);
     localparam WIN_CNT_BITS   = $clog2(WINREG + 1);
@@ -199,17 +207,45 @@ module seed_generator #(
     reg [127:0] pending_word;
     reg         pending_is_first;
 
+    // O mux de alinhamento por offset (pending_word >> offset) e recalculado
+    // TODO ciclo que ha um pending_valid, mesmo quando nao e o primeiro bloco
+    // do lote (o hardware nao sabe que so importa 1x/lote) - encadeado com o
+    // insert em gb_reg, isso virou o caminho critico quando outros gargalos
+    // foram resolvidos. Registra o resultado (ja resolvido) num estagio a
+    // mais antes do insert, uniformemente para todas as palavras (nao so a
+    // primeira, para nao arriscar reordenar o stream).
+    reg         insert_pending;
+    reg [127:0] insert_word;
+    reg [7:0]   insert_w_comb;
+
     wire [7:0]   w_comb           = (pending_is_first) ? (8'd128 - {1'b0, offset}) : 8'd128;
     wire [127:0] padded_data_comb = (pending_is_first) ? (pending_word >> offset) : pending_word;
-    wire [GB_WIDTH-1:0] padded_data_ext = {{(GB_WIDTH-128){1'b0}}, padded_data_comb};
+    wire [GB_WIDTH-1:0] padded_data_ext = {{(GB_WIDTH-128){1'b0}}, insert_word};
 
-    // Reserva espaco para a palavra que ja foi lida da FIFO mas ainda nao
-    // foi inserida no gearbox (pending_valid), para nao estourar GB_WIDTH.
-    wire gb_has_room = (gb_valid_bits + (pending_valid ? 9'd128 : 9'd0)) <= (GB_WIDTH - 128);
+    // Reserva espaco para as palavras ainda em transito (lidas da FIFO mas
+    // nao inseridas no gearbox): uma pode estar em pending_valid (aguardando
+    // o alinhamento por offset resolver) e outra em insert_pending
+    // (alinhamento ja resolvido, aguardando insercao). O limiar (128) e o
+    // mesmo de antes - GB_WIDTH so cresceu para dar espaco fisico a essas
+    // reservas sem estourar o container.
+    wire gb_has_room = (gb_valid_bits
+                            + (pending_valid ? 9'd128 : 9'd0)
+                            + (insert_pending ? 9'd128 : 9'd0)) <= 9'd128;
     wire fifo_pop     = (state == S_STREAMING || state == S_WARMUP) &&
                         (fifo_count != 0) && gb_has_room;
 
-    wire win_has_room = (win_valid_bits + W <= WINREG[WIN_CNT_BITS-1:0]);
+    // Estagio 1 (decisao) / estagio 2 (insercao) tambem para gearbox -> janela,
+    // mesma tecnica: com P grande, WINREG cresce proporcional a P e o mux de
+    // insercao no window_reg (posicoes multiplas de W, mas ha muitas quando
+    // WINREG e grande) encadeado com o comparador win_valid_bits+W<=WINREG no
+    // mesmo ciclo virou o novo caminho critico. Registra o pedaco de W bits
+    // (win_pending_chunk) antes de inseri-lo, e reserva espaco para ele no
+    // capacity check (mesmo padrao de pending_valid/gb_has_room).
+    reg       win_pending_valid;
+    reg [W-1:0] win_pending_chunk;
+
+    wire win_has_room = (win_valid_bits + (win_pending_valid ? W : 0))
+                            <= (WINREG[WIN_CNT_BITS-1:0] - W);
     wire feed_window  = (state == S_STREAMING || state == S_WARMUP) &&
                         (gb_valid_bits >= W) && win_has_room;
 
@@ -311,17 +347,19 @@ module seed_generator #(
                 next_win_valid = next_win_valid - W;
             end
 
-            if (feed_window) begin
-                next_gb       = next_gb >> W;
-                next_gb_valid = next_gb_valid - W;
-
-                next_win       = next_win | ({{(WINREG-W){1'b0}}, gb_reg[W-1:0]} << next_win_valid);
+            if (win_pending_valid) begin
+                next_win       = next_win | ({{(WINREG-W){1'b0}}, win_pending_chunk} << next_win_valid);
                 next_win_valid = next_win_valid + W;
             end
 
-            if (pending_valid) begin
+            if (feed_window) begin
+                next_gb       = next_gb >> W;
+                next_gb_valid = next_gb_valid - W;
+            end
+
+            if (insert_pending) begin
                 next_gb       = next_gb | (padded_data_ext << next_gb_valid);
-                next_gb_valid = next_gb_valid + w_comb;
+                next_gb_valid = next_gb_valid + insert_w_comb;
             end
         end
     end
@@ -348,6 +386,11 @@ module seed_generator #(
             pending_valid  <= 1'b0;
             pending_word   <= 0;
             pending_is_first <= 1'b0;
+            insert_pending <= 1'b0;
+            insert_word    <= 0;
+            insert_w_comb  <= 0;
+            win_pending_valid <= 1'b0;
+            win_pending_chunk <= 0;
         end else begin
             case (state)
                 S_IDLE: begin
@@ -373,6 +416,11 @@ module seed_generator #(
                     pending_valid  <= 1'b0;
                     pending_word   <= 0;
                     pending_is_first <= 1'b0;
+                    insert_pending <= 1'b0;
+                    insert_word    <= 0;
+                    insert_w_comb  <= 0;
+                    win_pending_valid <= 1'b0;
+                    win_pending_chunk <= 0;
 
                     state          <= S_WARMUP;
                 end
@@ -389,6 +437,20 @@ module seed_generator #(
                     end
 
                     pending_valid <= fifo_pop;
+
+                    // Resolve o alinhamento por offset (padded_data_comb/
+                    // w_comb) um ciclo antes de inserir em gb_reg, pra nao
+                    // encadear o shift-por-offset com o shift-de-insercao
+                    // no mesmo ciclo.
+                    insert_pending <= pending_valid;
+                    if (pending_valid) begin
+                        insert_word   <= padded_data_comb;
+                        insert_w_comb <= w_comb;
+                    end
+
+                    win_pending_valid <= feed_window;
+                    if (feed_window)
+                        win_pending_chunk <= gb_reg[W-1:0];
 
                     if (fifo_pop) begin
                         fifo_rd_ptr      <= (fifo_rd_ptr == FIFO_DEPTH-1) ? 0 : fifo_rd_ptr + 1;

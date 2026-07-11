@@ -110,7 +110,7 @@ refer to the applicable agreement for further details.
 	)
 )
 (symbol
-	(rect 400 408 600 520)
+	(rect 408 400 608 512)
 	(text "top" (rect 5 0 20 12)(font "Arial" ))
 	(text "inst" (rect 8 96 25 108)(font "Arial" ))
 	(port
@@ -186,27 +186,11 @@ refer to the applicable agreement for further details.
 	(drawing
 		(rectangle (rect 16 16 184 96))
 	)
-	(annotation_block (parameter)(rect 600 256 1672 408))
+	(annotation_block (parameter)(rect 608 248 1680 400))
 )
 (connector
 	(pt 344 528)
 	(pt 352 528)
-)
-(connector
-	(pt 352 528)
-	(pt 352 456)
-)
-(connector
-	(pt 648 456)
-	(pt 600 456)
-)
-(connector
-	(pt 648 472)
-	(pt 600 472)
-)
-(connector
-	(pt 352 456)
-	(pt 400 456)
 )
 (connector
 	(pt 144 440)
@@ -214,5 +198,45 @@ refer to the applicable agreement for further details.
 )
 (connector
 	(pt 328 440)
-	(pt 400 440)
+	(pt 336 440)
+)
+(connector
+	(pt 648 456)
+	(pt 640 456)
+)
+(connector
+	(pt 648 472)
+	(pt 632 472)
+)
+(connector
+	(pt 352 528)
+	(pt 352 448)
+)
+(connector
+	(pt 336 440)
+	(pt 336 432)
+)
+(connector
+	(pt 640 456)
+	(pt 640 448)
+)
+(connector
+	(pt 640 448)
+	(pt 608 448)
+)
+(connector
+	(pt 632 472)
+	(pt 632 464)
+)
+(connector
+	(pt 632 464)
+	(pt 608 464)
+)
+(connector
+	(pt 336 432)
+	(pt 408 432)
+)
+(connector
+	(pt 352 448)
+	(pt 408 448)
 )
