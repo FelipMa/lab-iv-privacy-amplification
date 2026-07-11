@@ -4,26 +4,27 @@ editor if you plan to continue editing the block that represents it in
 the Block Editor! File corruption is VERY likely to occur.
 */
 /*
-Copyright (C) 2018  Intel Corporation. All rights reserved.
-Your use of Intel Corporation's design tools, logic functions 
-and other software and tools, and its AMPP partner logic 
+Copyright (C) 2025  Altera Corporation. All rights reserved.
+Your use of Altera Corporation's design tools, logic functions 
+and other software and tools, and any partner logic 
 functions, and any output files from any of the foregoing 
 (including device programming or simulation files), and any 
 associated documentation or information are expressly subject 
-to the terms and conditions of the Intel Program License 
-Subscription Agreement, the Intel Quartus Prime License Agreement,
-the Intel FPGA IP License Agreement, or other applicable license
+to the terms and conditions of the Altera Program License 
+Subscription Agreement, the Altera Quartus Prime License Agreement,
+the Altera IP License Agreement, or other applicable license
 agreement, including, without limitation, that your use is for
 the sole purpose of programming logic devices manufactured by
-Intel and sold by Intel or its authorized distributors.  Please
-refer to the applicable agreement for further details.
+Altera and sold by Altera or its authorized distributors.  Please
+refer to the Altera Software License Subscription Agreements 
+on the Quartus Prime software download page.
 */
 (header "graphic" (version "1.4"))
 (pin
 	(input)
 	(rect -24 432 144 448)
 	(text "INPUT" (rect 125 0 153 10)(font "Arial" (font_size 6)))
-	(text "CLOCK_50" (rect 5 0 61 12)(font "Arial" ))
+	(text "CLOCK_50" (rect 5 0 60 11)(font "Arial" ))
 	(pt 168 8)
 	(drawing
 		(line (pt 84 12)(pt 109 12))
@@ -40,7 +41,7 @@ refer to the applicable agreement for further details.
 	(input)
 	(rect 176 520 344 536)
 	(text "INPUT" (rect 125 0 153 10)(font "Arial" (font_size 6)))
-	(text "SW[0]" (rect 5 0 36 12)(font "Arial" ))
+	(text "SW[0]" (rect 5 0 38 11)(font "Arial" ))
 	(pt 168 8)
 	(drawing
 		(line (pt 84 12)(pt 109 12))
@@ -57,7 +58,7 @@ refer to the applicable agreement for further details.
 	(output)
 	(rect 648 464 824 480)
 	(text "OUTPUT" (rect 1 0 39 10)(font "Arial" (font_size 6)))
-	(text "LEDR[0]" (rect 90 0 128 17)(font "Intel Clear" ))
+	(text "LEDR[0]" (rect 90 0 130 13)(font "Intel Clear" ))
 	(pt 0 8)
 	(drawing
 		(line (pt 0 8)(pt 52 8))
@@ -74,7 +75,7 @@ refer to the applicable agreement for further details.
 	(output)
 	(rect 648 448 824 464)
 	(text "OUTPUT" (rect 1 0 39 10)(font "Arial" (font_size 6)))
-	(text "LEDR[1]" (rect 90 0 128 17)(font "Intel Clear" ))
+	(text "LEDR[1]" (rect 90 0 130 13)(font "Intel Clear" ))
 	(pt 0 8)
 	(drawing
 		(line (pt 0 8)(pt 52 8))
@@ -89,20 +90,20 @@ refer to the applicable agreement for further details.
 )
 (symbol
 	(rect 176 408 312 488)
-	(text "pll_150" (rect 5 0 39 12)(font "Arial" ))
-	(text "inst1" (rect 8 64 30 81)(font "Intel Clear" ))
+	(text "pll_150" (rect 5 0 43 11)(font "Arial" ))
+	(text "inst1" (rect 8 64 32 77)(font "Intel Clear" ))
 	(port
 		(pt 0 32)
 		(input)
-		(text "inclk0" (rect 0 0 28 12)(font "Arial" ))
-		(text "inclk0" (rect 21 27 49 39)(font "Arial" ))
+		(text "inclk0" (rect 0 0 31 11)(font "Arial" ))
+		(text "inclk0" (rect 21 27 52 38)(font "Arial" ))
 		(line (pt 0 32)(pt 16 32))
 	)
 	(port
 		(pt 136 32)
 		(output)
-		(text "c0" (rect 0 0 11 12)(font "Arial" ))
-		(text "c0" (rect 106 27 117 39)(font "Arial" ))
+		(text "c0" (rect 0 0 12 11)(font "Arial" ))
+		(text "c0" (rect 106 27 118 38)(font "Arial" ))
 		(line (pt 136 32)(pt 120 32))
 	)
 	(drawing
@@ -111,46 +112,46 @@ refer to the applicable agreement for further details.
 )
 (symbol
 	(rect 392 408 592 520)
-	(text "top" (rect 5 0 20 12)(font "Arial" ))
-	(text "inst" (rect 8 96 25 108)(font "Arial" ))
+	(text "top" (rect 5 0 22 11)(font "Arial" ))
+	(text "inst" (rect 8 96 28 107)(font "Arial" ))
 	(port
 		(pt 0 32)
 		(input)
-		(text "clock" (rect 0 0 25 12)(font "Arial" ))
-		(text "clock" (rect 21 27 46 39)(font "Arial" ))
+		(text "clock" (rect 0 0 29 11)(font "Arial" ))
+		(text "clock" (rect 21 27 50 38)(font "Arial" ))
 		(line (pt 0 32)(pt 16 32))
 	)
 	(port
 		(pt 0 48)
 		(input)
-		(text "reset" (rect 0 0 24 12)(font "Arial" ))
-		(text "reset" (rect 21 43 45 55)(font "Arial" ))
+		(text "reset" (rect 0 0 27 11)(font "Arial" ))
+		(text "reset" (rect 21 43 48 54)(font "Arial" ))
 		(line (pt 0 48)(pt 16 48))
 	)
 	(port
 		(pt 200 32)
 		(output)
-		(text "hash_register[P-1..0]" (rect 0 0 102 12)(font "Arial" ))
-		(text "hash_register[P-1..0]" (rect 93 27 195 39)(font "Arial" ))
+		(text "hash_register[P-1..0]" (rect 0 0 110 11)(font "Arial" ))
+		(text "hash_register[P-1..0]" (rect 93 27 203 38)(font "Arial" ))
 		(line (pt 200 32)(pt 184 32)(line_width 3))
 	)
 	(port
 		(pt 200 48)
 		(output)
-		(text "batch_ready" (rect 0 0 61 12)(font "Arial" ))
-		(text "batch_ready" (rect 128 43 189 55)(font "Arial" ))
+		(text "batch_ready" (rect 0 0 67 11)(font "Arial" ))
+		(text "batch_ready" (rect 128 43 195 54)(font "Arial" ))
 		(line (pt 200 48)(pt 184 48))
 	)
 	(port
 		(pt 200 64)
 		(output)
-		(text "done" (rect 0 0 23 12)(font "Arial" ))
-		(text "done" (rect 160 59 183 71)(font "Arial" ))
+		(text "done" (rect 0 0 27 11)(font "Arial" ))
+		(text "done" (rect 160 59 187 70)(font "Arial" ))
 		(line (pt 200 64)(pt 184 64))
 	)
 	(parameter
 		"N"
-		"640"
+		"1000000"
 		""
 		(type "PARAMETER_SIGNED_DEC")	)
 	(parameter
@@ -160,12 +161,12 @@ refer to the applicable agreement for further details.
 		(type "PARAMETER_SIGNED_DEC")	)
 	(parameter
 		"P"
-		"32"
+		"1563"
 		""
 		(type "PARAMETER_SIGNED_DEC")	)
 	(parameter
 		"L"
-		"64"
+		"100000"
 		""
 		(type "PARAMETER_SIGNED_DEC")	)
 	(parameter
@@ -186,7 +187,7 @@ refer to the applicable agreement for further details.
 	(drawing
 		(rectangle (rect 16 16 184 96))
 	)
-	(annotation_block (parameter)(rect 592 256 1658 408))
+	(annotation_block (parameter)(rect 592 256 1650 360))
 )
 (connector
 	(pt 312 440)

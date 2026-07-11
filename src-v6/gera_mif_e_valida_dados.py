@@ -106,7 +106,7 @@ def gerar_stream_aes_ctr(seed_key_int, seed_nonce_int, nbits):
         block_int = int.from_bytes(block, byteorder="big")
 
         # LSB-first, igual ao acesso output_block[0], output_block[1]...
-        stream_bits.extend(int_to_bits_lsb(block_int, 128))
+        stream_bits.extend(int_to_bits_msb(block_int, 128))
 
     return stream_bits[:nbits]
 
@@ -371,6 +371,9 @@ def main():
     print(f"SEED_NONCE= 96'h{seed_nonce_int:024X}")
     print(f"FINAL_KEY = 0x{bits_to_hex_lsb(final_hash_bits, L)}")
     print("============================================================")
+
+def int_to_bits_msb(value, width):
+    return [(value >> (width - 1 - i)) & 1 for i in range(width)]
 
 
 if __name__ == "__main__":
