@@ -58,6 +58,7 @@ module controlador #(
     localparam S_CAPTURE = 3'd4;
     localparam S_WRITE   = 3'd5;
     localparam S_DONE    = 3'd6;
+    localparam S_DRAIN2  = 3'd7;
 
     reg [2:0] current_state, next_state;
 
@@ -111,7 +112,13 @@ module controlador #(
             end
 
             S_DRAIN: begin
-                // Bolha de um ciclo para o ultimo enable atravessar o pipeline do hash_engine.
+                // 1a bolha: atravessa o registrador de fronteira em top.v
+                // (safe_key_r/safe_window_r/enable_r/clear_acc_r).
+                next_state = S_DRAIN2;
+            end
+
+            S_DRAIN2: begin
+                // 2a bolha: atravessa o pipeline interno de 2 estagios do hash_engine.
                 next_state = S_CAPTURE;
             end
 
