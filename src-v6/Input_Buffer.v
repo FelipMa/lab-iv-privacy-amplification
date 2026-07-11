@@ -30,11 +30,12 @@ localparam [2:0]
     STREAM         = 3'd4;
 
 localparam integer TOTAL_WORDS = DEPTH * REPEAT_COUNT;
+localparam integer SENT_COUNT_BITS = $clog2(TOTAL_WORDS + 1);
 
 reg [2:0]            state;
 reg [DATA_BITS-1:0] out_reg;
 
-reg [31:0]          sent_count;
+reg [SENT_COUNT_BITS-1:0] sent_count;
 
 reg [ADDR_BITS-1:0] rom_addr_reg;
 reg [ADDR_BITS-1:0] next_addr;

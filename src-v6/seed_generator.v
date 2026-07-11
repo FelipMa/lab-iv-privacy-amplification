@@ -143,6 +143,30 @@ module seed_generator #(
         end
     end
 
+    // Registra a saida do mux de prioridade das lanes AES antes de usa-la
+    // para escrever na FIFO: sem isso, o mux 10:1 de 128 bits ficava
+    // encadeado no mesmo ciclo com a escrita indexada em 1-de-FIFO_DEPTH
+    // slots, virando o novo caminho critico depois das correcoes anteriores.
+    reg         captured_valid_r;
+    reg [127:0] captured_block_r;
+
+    always @(posedge clock) begin
+        if (!reset_n || state == S_CALC_START) begin
+            // Descarta explicitamente qualquer output_valid tardio do rabo
+            // do lote anterior (mesmo efeito que o design original tinha
+            // "de graca": a escrita na FIFO so roda no branch
+            // S_WARMUP/S_STREAMING, entao um pulso chegando durante
+            // S_CALC_START nunca era escrito). Sem isso, esse pulso
+            // sobreviveria 1 ciclo no registrador e contaminaria o
+            // fifo_mem[0] do lote novo.
+            captured_valid_r <= 1'b0;
+            captured_block_r <= 128'd0;
+        end else begin
+            captured_valid_r <= captured_valid;
+            captured_block_r <= captured_block;
+        end
+    end
+
     // ============================================================
     // FIFO de staging: cada bloco AES capturado vai para um slot indexado
     // por ponteiro (sem shift nenhum). Substitui o antigo controle de
@@ -199,6 +223,15 @@ module seed_generator #(
     reg [7:0]               timer_interval;
     reg [FIFO_CNT_BITS-1:0] blocks_in_flight;
 
+    // Decisao (can_launch, que le aes_ready[lane_to_feed] - um mux 10:1 sobre
+    // o round/fsm de cada lane) e execucao (escrita indexada em
+    // aes_input_block_array/aes_input_valid) ficavam encadeadas no mesmo
+    // ciclo, virando o novo caminho critico apos as correcoes anteriores.
+    // Mesma tecnica de pending_valid/captured_valid_r: separa em 2 estagios.
+    reg                  launch_pending;
+    reg [LANE_BITS-1:0]  launch_lane;
+    reg [31:0]           launch_counter;
+
     wire can_launch = aes_active && (timer_interval == 0) &&
                       aes_ready[lane_to_feed] &&
                       ((fifo_count + blocks_in_flight) < FIFO_DEPTH[FIFO_CNT_BITS-1:0]);
@@ -210,24 +243,39 @@ module seed_generator #(
             timer_interval      <= 0;
             current_aes_counter <= 0;
             blocks_in_flight    <= 0;
+            launch_pending       <= 1'b0;
+            launch_lane          <= 0;
+            launch_counter        <= 0;
         end else if (state == S_CALC_START) begin
             aes_input_valid     <= {AES_QTD{1'b0}};
             lane_to_feed        <= 0;
             timer_interval      <= 0;
             current_aes_counter <= calc_base_counter;
             blocks_in_flight    <= 0;
+            launch_pending       <= 1'b0;
+            launch_lane          <= 0;
+            launch_counter        <= 0;
         end else if (aes_active) begin
+            // Estagio 2: comete a decisao registrada no ciclo anterior.
             aes_input_valid <= {AES_QTD{1'b0}};
+            if (launch_pending) begin
+                aes_input_valid[launch_lane]       <= 1'b1;
+                aes_input_block_array[launch_lane] <= {nonce, launch_counter};
+            end
 
-            if (can_launch && !captured_valid)
+            // Estagio 1: decide e reserva (lane/contador/timer avancam aqui,
+            // igual antes; so a escrita de fato foi para o estagio 2).
+            launch_pending <= can_launch;
+
+            if (can_launch && !captured_valid_r)
                 blocks_in_flight <= blocks_in_flight + 1;
-            else if (!can_launch && captured_valid && (blocks_in_flight != 0))
+            else if (!can_launch && captured_valid_r && (blocks_in_flight != 0))
                 blocks_in_flight <= blocks_in_flight - 1;
 
             if (can_launch) begin
-                aes_input_valid[lane_to_feed]       <= 1'b1;
-                aes_input_block_array[lane_to_feed] <= {nonce, current_aes_counter};
-                current_aes_counter                 <= current_aes_counter + 1;
+                launch_lane          <= lane_to_feed;
+                launch_counter       <= current_aes_counter;
+                current_aes_counter  <= current_aes_counter + 1;
 
                 if (lane_to_feed == AES_QTD - 1)
                     lane_to_feed <= 0;
@@ -335,8 +383,8 @@ module seed_generator #(
                     window_reg     <= next_win;
                     win_valid_bits <= next_win_valid;
 
-                    if (captured_valid) begin
-                        fifo_mem[fifo_wr_ptr] <= captured_block;
+                    if (captured_valid_r) begin
+                        fifo_mem[fifo_wr_ptr] <= captured_block_r;
                         fifo_wr_ptr           <= (fifo_wr_ptr == FIFO_DEPTH-1) ? 0 : fifo_wr_ptr + 1;
                     end
 
@@ -351,7 +399,7 @@ module seed_generator #(
                             is_first_block <= 1'b0;
                     end
 
-                    case ({captured_valid, fifo_pop})
+                    case ({captured_valid_r, fifo_pop})
                         2'b10:   fifo_count <= fifo_count + 1'b1;
                         2'b01:   fifo_count <= fifo_count - 1'b1;
                         default: fifo_count <= fifo_count;

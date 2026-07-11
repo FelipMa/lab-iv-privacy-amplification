@@ -13,4 +13,5 @@ set_output_delay -clock CLOCK_50 2.0 [all_outputs]
 
 # Ignora o cruzamento assíncrono para os pinos externos de feedback
 set_false_path -from [all_registers] -to [get_ports {SAIDA_HASH[*]}]
+set_false_path -from [all_registers] -to [get_ports {LEDR[*]}]
 set_false_path -from [get_ports {SW[*]}]

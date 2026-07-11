@@ -88,7 +88,7 @@ refer to the applicable agreement for further details.
 	(annotation_block (location)(rect 824 464 888 488))
 )
 (symbol
-	(rect 176 408 312 488)
+	(rect 192 408 328 488)
 	(text "pll_150" (rect 5 0 39 12)(font "Arial" ))
 	(text "inst1" (rect 8 64 30 81)(font "Intel Clear" ))
 	(port
@@ -110,7 +110,7 @@ refer to the applicable agreement for further details.
 	)
 )
 (symbol
-	(rect 392 408 592 520)
+	(rect 400 408 600 520)
 	(text "top" (rect 5 0 20 12)(font "Arial" ))
 	(text "inst" (rect 8 96 25 108)(font "Arial" ))
 	(port
@@ -186,33 +186,33 @@ refer to the applicable agreement for further details.
 	(drawing
 		(rectangle (rect 16 16 184 96))
 	)
-	(annotation_block (parameter)(rect 592 256 1664 408))
-)
-(connector
-	(pt 312 440)
-	(pt 392 440)
-)
-(connector
-	(pt 176 440)
-	(pt 144 440)
-)
-(connector
-	(pt 392 456)
-	(pt 352 456)
+	(annotation_block (parameter)(rect 600 256 1672 408))
 )
 (connector
 	(pt 344 528)
 	(pt 352 528)
 )
 (connector
-	(pt 352 456)
 	(pt 352 528)
+	(pt 352 456)
 )
 (connector
-	(pt 592 472)
-	(pt 648 472)
-)
-(connector
-	(pt 592 456)
 	(pt 648 456)
+	(pt 600 456)
+)
+(connector
+	(pt 648 472)
+	(pt 600 472)
+)
+(connector
+	(pt 352 456)
+	(pt 400 456)
+)
+(connector
+	(pt 144 440)
+	(pt 192 440)
+)
+(connector
+	(pt 328 440)
+	(pt 400 440)
 )
