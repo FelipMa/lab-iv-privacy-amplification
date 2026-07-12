@@ -6,11 +6,13 @@ module tb_sistema_completo;
     parameter W = 64;
     parameter P = 32;
     parameter L = 64;
-    parameter ROM_ADDR_BITS = 5;
-    parameter MEM_DEPTH = 32;
     parameter AES_CYCLES = 20;
     parameter [127:0] SEED_KEY   = 128'h2B7E151628AED2A6ABF7158809CF4F3C;
     parameter [95:0]  SEED_NONCE = 96'h000000000000000000000001;
+    // Default 0: usa SEED_KEY/SEED_NONCE fixos, para bater com a chave final
+    // conhecida (validacao por regressao). Rode com -gUSE_LFSR_SEED=1 para
+    // exercitar o caminho da seed via LFSR.
+    parameter USE_LFSR_SEED = 0;
 
     localparam CYCLES  = (N + W - 1) / W;
     localparam BATCHES = (L + P - 1) / P;
@@ -27,9 +29,6 @@ module tb_sistema_completo;
     reg [L-1:0] chave_final;
     reg [L-1:0] chave_final_next;
 
-    integer reset_delay;
-    reg     seed_printed;
-
     top #(
         .N(N),
         .W(W),
@@ -37,7 +36,8 @@ module tb_sistema_completo;
         .L(L),
         .AES_CYCLES(AES_CYCLES),
         .SEED_KEY(SEED_KEY),
-        .SEED_NONCE(SEED_NONCE)
+        .SEED_NONCE(SEED_NONCE),
+        .USE_LFSR_SEED(USE_LFSR_SEED)
     ) uut_top (
         .clock(clock),
         .reset(reset),
@@ -52,43 +52,20 @@ module tb_sistema_completo;
     end
 
     initial begin
-        reset        = 1'b1;
-        batch_count  = 0;
-        cycle_count  = 0;
-        seed_printed = 1'b0;
-        chave_final  = {L{1'b0}};
+        reset       = 1'b1;
+        batch_count = 0;
+        cycle_count = 0;
+        chave_final = {L{1'b0}};
         chave_final_next = {L{1'b0}};
-
-        if (!$value$plusargs("reset_delay=%d", reset_delay))
-            reset_delay = $urandom_range(2, 80);
 
         $display("============================================================");
         $display(" TB SIMPLES - CAPTURA DA CHAVE FINAL");
         $display(" N=%0d L=%0d W=%0d P=%0d CYCLES=%0d BATCHES=%0d", N, L, W, P, CYCLES, BATCHES);
-        $display(" reset_delay (ciclos ate soltar o reset) = %0d", reset_delay);
         $display("============================================================");
 
-        repeat (reset_delay) @(posedge clock);
+        repeat (5) @(posedge clock);
         reset = 1'b0;
-        $display("[%0t] Reset liberado apos %0d ciclos. Aguardando batches...", $time, reset_delay);
-    end
-
-    reg [31:0] entropy_at_load;
-    always @(posedge clock) begin
-        if (uut_top.u_controlador.lfsr_enable && uut_top.u_controlador.lfsr_seed_dv)
-            entropy_at_load <= uut_top.u_controlador.lfsr_seed_value;
-    end
-
-    always @(posedge clock) begin
-        if (!seed_printed && uut_top.u_controlador.current_state == uut_top.u_controlador.S_PREPARE) begin
-            seed_printed = 1'b1;
-            $display("------------------------------------------------------------");
-            $display(" SEED GERADA (reset_delay=%0d)", reset_delay);
-            $display(" entropy_counter na carga = 0x%0h", entropy_at_load);
-            $display(" seed_key                 = 0x%0h", uut_top.lfsr_seed_key);
-            $display(" seed_nonce               = 0x%0h", uut_top.lfsr_seed_nonce);
-            $display("------------------------------------------------------------");
-        end
+        $display("[%0t] Reset liberado. Aguardando batches...", $time);
     end
 
     always @(posedge clock) begin

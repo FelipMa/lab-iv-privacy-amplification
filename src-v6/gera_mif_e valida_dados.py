@@ -12,18 +12,18 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 # PARAMETROS DO PROJETO
 # ============================================================
 
+N = 1000000
 W = 64
-P = 32
-N = 640
-L = 64
+P = 1565
+L = 100000
 
 MASTER_SEED = 42
 
 # Se quiser fixar manualmente, preencha aqui.
 # Se deixar None, o script gera dinamicamente a partir da MASTER_SEED.
 
-FIXED_SEED_KEY   = "ffffc00fff6db6d145d766fa5f99f694"
-FIXED_SEED_NONCE = "b226a234a9c1645074e4a326"
+FIXED_SEED_KEY   = "2B7E151628AED2A6ABF7158809CF4F3C"
+FIXED_SEED_NONCE = "000000000000000000000001"
 
 
 # ============================================================
@@ -58,6 +58,11 @@ def bits_to_hex_lsb(bits, width=None):
     return f"{value:0{hex_len}X}"
 
 
+def int_to_hex_lsb(value, width):
+    hex_len = (width + 3) // 4
+    return f"{value & ((1 << width) - 1):0{hex_len}X}"
+
+
 def xor_reduce(bits):
     acc = 0
     for bit in bits:
@@ -65,22 +70,15 @@ def xor_reduce(bits):
     return acc
 
 
-def gerar_stream_aes_ctr(seed_key_int, seed_nonce_int, nbits):
-    """
-    Gera stream AES-128 CTR usando biblioteca cryptography.
+def popcount_mod2(value):
+    try:
+        return value.bit_count() & 1
+    except AttributeError:
+        # Fallback para Python < 3.10.
+        return bin(value).count("1") & 1
 
-    O bloco de entrada do CTR é:
 
-        SEED_NONCE || counter
-
-    com:
-        SEED_NONCE = 96 bits
-        counter    = 32 bits, iniciando em 0
-
-    A saída é convertida para bits LSB-first para bater com o Verilog:
-        stream[0] = bit 0 do output_block AES.
-    """
-
+def gerar_stream_aes_ctr_int(seed_key_int, seed_nonce_int, nbits):
     key_bytes = seed_key_int.to_bytes(16, byteorder="big")
     nonce_bytes = seed_nonce_int.to_bytes(12, byteorder="big")
     counter_bytes = (0).to_bytes(4, byteorder="big")
@@ -99,16 +97,92 @@ def gerar_stream_aes_ctr(seed_key_int, seed_nonce_int, nbits):
     # Em CTR, cifrar zeros gera diretamente o keystream.
     stream_bytes = encryptor.update(bytes(blocks * 16)) + encryptor.finalize()
 
-    stream_bits = []
+    reordered = b"".join(
+        stream_bytes[i * 16:(i + 1) * 16]
+        for i in range(blocks - 1, -1, -1)
+    )
+    stream_int = int.from_bytes(reordered, byteorder="big")
 
-    for i in range(blocks):
-        block = stream_bytes[i * 16:(i + 1) * 16]
-        block_int = int.from_bytes(block, byteorder="big")
+    return stream_int & ((1 << nbits) - 1)
 
-        # LSB-first, igual ao acesso output_block[0], output_block[1]...
-        stream_bits.extend(int_to_bits_lsb(block_int, 128))
 
-    return stream_bits[:nbits]
+def calcular_privacy_amplification_rapido(key_int, stream_int, N, L):
+
+    mask_N = (1 << N) - 1
+    final_hash_bits_int = 0
+
+    for r in range(L):
+        row = (stream_int >> r) & mask_N
+        bit = popcount_mod2(row & key_int)
+        if bit:
+            final_hash_bits_int |= (1 << r)
+
+    return final_hash_bits_int
+
+
+def calcular_privacy_amplification_detalhado(log, key_int, stream_int,
+                                              N, L, W, P, win, cycles, batches):
+
+    final_hash_bits = []
+
+    log.write("============================================================\n")
+    log.write("OPERACOES - DEBUG PASSO A PASSO\n")
+    log.write("============================================================\n")
+
+    for batch in range(batches):
+        acc = [0] * P
+
+        log.write("\n")
+        log.write(f"---------------- LOTE {batch} ----------------\n")
+
+        for cycle in range(cycles):
+            key_start = cycle * W
+            key_piece = [(key_int >> (key_start + i)) & 1 for i in range(W)]
+
+            start_idx = batch * P + cycle * W
+            matrix_window = [(stream_int >> (start_idx + i)) & 1 for i in range(win)]
+
+            hash_step = [0] * P
+
+            for lane in range(P):
+                matrix_row = matrix_window[lane:lane + W]
+                and_result = [key_piece[i] & matrix_row[i] for i in range(W)]
+                bit_hash = xor_reduce(and_result)
+
+                hash_step[lane] = bit_hash
+                acc[lane] ^= bit_hash
+
+            log.write(f"\nCiclo {cycle}\n")
+            log.write(f"  key_piece     = 0x{bits_to_hex_lsb(key_piece, W)}\n")
+            log.write(f"  matrix_window = 0x{bits_to_hex_lsb(matrix_window, win)}\n")
+            log.write(f"  hash_step     = 0x{bits_to_hex_lsb(hash_step, P)}\n")
+            log.write(f"  hash_acc      = 0x{bits_to_hex_lsb(acc, P)}\n")
+
+        valid_lanes = min(P, L - batch * P)
+        batch_hash = acc[:valid_lanes]
+        final_hash_bits.extend(batch_hash)
+
+        log.write("\n")
+        log.write(f"LOTE {batch} FINALIZADO\n")
+        log.write(f"  hash_out_lote = 0x{bits_to_hex_lsb(batch_hash, valid_lanes)}\n")
+
+    final_hash_bits = final_hash_bits[:L]
+
+    log.write("\n")
+    log.write("============================================================\n")
+    log.write("RESULTADO POR LOTE\n")
+    log.write("============================================================\n")
+
+    for batch in range(batches):
+        start = batch * P
+        end = min(start + P, L)
+        lote_bits = final_hash_bits[start:end]
+
+        log.write(f"HASH_LOTE_{batch} = 0x{bits_to_hex_lsb(lote_bits, len(lote_bits))}\n")
+
+    log.write("\n")
+
+    return bits_to_int_lsb(final_hash_bits)
 
 
 def escrever_configuracao(log, *, N, L, W, P, cycles, batches, win,
@@ -144,7 +218,7 @@ def escrever_configuracao(log, *, N, L, W, P, cycles, batches, win,
     log.write("\n")
 
 
-def escrever_resultado_final(log, final_hash_bits):
+def escrever_resultado_final(log, final_hash_int, L):
     """
     Escreve apenas a chave final.
 
@@ -154,7 +228,7 @@ def escrever_resultado_final(log, final_hash_bits):
     log.write("============================================================\n")
     log.write("RESULTADO FINAL\n")
     log.write("============================================================\n")
-    log.write(f"FINAL_KEY = 0x{bits_to_hex_lsb(final_hash_bits, L)}\n")
+    log.write(f"FINAL_KEY = 0x{int_to_hex_lsb(final_hash_int, L)}\n")
 
 
 # ============================================================
@@ -180,7 +254,10 @@ def main():
         "--debug",
         dest="debug",
         action="store_true",
-        help="Ativa o registro completo do passo a passo."
+        help=(
+            "Ativa o registro completo do passo a passo (O(N*L), so viavel "
+            "em escalas reduzidas de N/L usadas para validacao)."
+        )
     )
     debug_group.add_argument(
         "--no-debug",
@@ -202,9 +279,20 @@ def main():
 
     # ========================================================
     # 1. GERA CHAVE RECONCILIADA DINAMICAMENTE
+    #
+    # Mantem N chamadas de getrandbits(1) (uma por bit, na ordem original)
+    # em vez de uma unica getrandbits(N): esse gerador consome o estado do
+    # Random de forma diferente dependendo de k em getrandbits(k), entao
+    # trocar o padrao de chamadas mudaria a chave reconciliada gerada para
+    # a mesma seed, quebrando reprodutibilidade com key.mif/debug_log.txt
+    # ja gerados. Le pouco tempo comparado ao calculo de hash (O(N) vs
+    # O(N*L)), entao nao e o gargalo.
     # ========================================================
 
-    key_bits = [rng.getrandbits(1) for _ in range(N)]
+    key_int = 0
+    for i in range(N):
+        if rng.getrandbits(1):
+            key_int |= (1 << i)
 
     # ========================================================
     # 2. GERA SEED_KEY E SEED_NONCE DINAMICAMENTE
@@ -221,12 +309,12 @@ def main():
         seed_nonce_int = rng.getrandbits(96)
 
     # ========================================================
-    # 3. GERA STREAM AES-CTR
+    # 3. GERA STREAM AES-CTR (como inteiro grande, sem lista de bits)
     # ========================================================
 
     stream_bits_needed = N + L - 1
 
-    stream_bits = gerar_stream_aes_ctr(
+    stream_int = gerar_stream_aes_ctr_int(
         seed_key_int=seed_key_int,
         seed_nonce_int=seed_nonce_int,
         nbits=stream_bits_needed
@@ -245,12 +333,8 @@ def main():
 
         for addr in range(rom_depth_key):
             if addr < cycles:
-                chunk = key_bits[addr * W:(addr + 1) * W]
-
-                if len(chunk) < W:
-                    chunk += [0] * (W - len(chunk))
-
-                hex_val = bits_to_hex_lsb(chunk, W)
+                chunk = (key_int >> (addr * W)) & ((1 << W) - 1)
+                hex_val = int_to_hex_lsb(chunk, W)
             else:
                 hex_val = "0" * ((W + 3) // 4)
 
@@ -260,9 +344,12 @@ def main():
 
     # ========================================================
     # 5. CALCULA PRIVACY AMPLIFICATION E GERA LOG
+    #
+    # Com --debug, usa o caminho detalhado (passo a passo, O(N*L)), so
+    # viavel em escalas reduzidas. Sem --debug (padrao, inclusive para N/L
+    # em escala real), usa o caminho rapido O(L) baseado em inteiros
+    # grandes.
     # ========================================================
-
-    final_hash_bits = []
 
     with open(args.log_file, "w", encoding="utf-8") as log:
         escrever_configuracao(
@@ -282,79 +369,15 @@ def main():
         )
 
         if args.debug:
-            log.write("============================================================\n")
-            log.write("OPERACOES - DEBUG PASSO A PASSO\n")
-            log.write("============================================================\n")
+            final_hash_int = calcular_privacy_amplification_detalhado(
+                log, key_int, stream_int, N, L, W, P, win, cycles, batches
+            )
+        else:
+            final_hash_int = calcular_privacy_amplification_rapido(
+                key_int, stream_int, N, L
+            )
 
-        for batch in range(batches):
-            acc = [0] * P
-
-            if args.debug:
-                log.write("\n")
-                log.write(f"---------------- LOTE {batch} ----------------\n")
-
-            for cycle in range(cycles):
-                key_start = cycle * W
-                key_piece = key_bits[key_start:key_start + W]
-
-                if len(key_piece) < W:
-                    key_piece += [0] * (W - len(key_piece))
-
-                start_idx = batch * P + cycle * W
-                matrix_window = stream_bits[start_idx:start_idx + win]
-
-                if len(matrix_window) < win:
-                    matrix_window += [0] * (win - len(matrix_window))
-
-                hash_step = [0] * P
-
-                for lane in range(P):
-                    matrix_row = matrix_window[lane:lane + W]
-
-                    and_result = [
-                        key_piece[i] & matrix_row[i]
-                        for i in range(W)
-                    ]
-
-                    bit_hash = xor_reduce(and_result)
-
-                    hash_step[lane] = bit_hash
-                    acc[lane] ^= bit_hash
-
-                if args.debug:
-                    log.write(f"\nCiclo {cycle}\n")
-                    log.write(f"  key_piece     = 0x{bits_to_hex_lsb(key_piece, W)}\n")
-                    log.write(f"  matrix_window = 0x{bits_to_hex_lsb(matrix_window, win)}\n")
-                    log.write(f"  hash_step     = 0x{bits_to_hex_lsb(hash_step, P)}\n")
-                    log.write(f"  hash_acc      = 0x{bits_to_hex_lsb(acc, P)}\n")
-
-            valid_lanes = min(P, L - batch * P)
-            batch_hash = acc[:valid_lanes]
-            final_hash_bits.extend(batch_hash)
-
-            if args.debug:
-                log.write("\n")
-                log.write(f"LOTE {batch} FINALIZADO\n")
-                log.write(f"  hash_out_lote = 0x{bits_to_hex_lsb(batch_hash, valid_lanes)}\n")
-
-        final_hash_bits = final_hash_bits[:L]
-
-        if args.debug:
-            log.write("\n")
-            log.write("============================================================\n")
-            log.write("RESULTADO POR LOTE\n")
-            log.write("============================================================\n")
-
-            for batch in range(batches):
-                start = batch * P
-                end = min(start + P, L)
-                lote_bits = final_hash_bits[start:end]
-
-                log.write(f"HASH_LOTE_{batch} = 0x{bits_to_hex_lsb(lote_bits, len(lote_bits))}\n")
-
-            log.write("\n")
-
-        escrever_resultado_final(log, final_hash_bits)
+        escrever_resultado_final(log, final_hash_int, L)
 
     # ========================================================
     # 6. PRINT RESUMIDO NO TERMINAL
@@ -369,7 +392,7 @@ def main():
     print(f"DEBUG     = {int(args.debug)}")
     print(f"SEED_KEY  = 128'h{seed_key_int:032X}")
     print(f"SEED_NONCE= 96'h{seed_nonce_int:024X}")
-    print(f"FINAL_KEY = 0x{bits_to_hex_lsb(final_hash_bits, L)}")
+    print(f"FINAL_KEY = 0x{int_to_hex_lsb(final_hash_int, L)}")
     print("============================================================")
 
 

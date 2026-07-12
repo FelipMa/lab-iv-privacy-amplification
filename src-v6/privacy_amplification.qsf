@@ -60,12 +60,16 @@ set_global_assignment -name EDA_TEST_BENCH_MODULE_NAME tb_seed_generator -sectio
 set_global_assignment -name EDA_TEST_BENCH_NAME tb_sistema_completo -section_id eda_simulation
 set_global_assignment -name EDA_DESIGN_INSTANCE_NAME NA -section_id tb_sistema_completo
 set_global_assignment -name EDA_TEST_BENCH_MODULE_NAME tb_sistema_completo -section_id tb_sistema_completo
+set_global_assignment -name EDA_TEST_BENCH_NAME aes128_tb -section_id eda_simulation
+set_global_assignment -name EDA_DESIGN_INSTANCE_NAME NA -section_id aes128_tb
+set_global_assignment -name EDA_TEST_BENCH_MODULE_NAME aes128_tb -section_id aes128_tb
 set_global_assignment -name EDA_NATIVELINK_SIMULATION_SETUP_SCRIPT wave.do -section_id eda_simulation
 set_global_assignment -name EDA_TEST_BENCH_FILE tb_seed_generator.v -section_id tb_seed_generator
 set_global_assignment -name EDA_TEST_BENCH_FILE tb_sistema_completo.v -section_id tb_sistema_completo
-set_global_assignment -name TIMING_ANALYZER_MULTICORNER_ANALYSIS ON
+set_global_assignment -name EDA_TEST_BENCH_FILE aes128_tb.v -section_id aes128_tb
+set_global_assignment -name TIMING_ANALYZER_MULTICORNER_ANALYSIS OFF
 set_global_assignment -name SMART_RECOMPILE ON
-set_global_assignment -name NUM_PARALLEL_PROCESSORS ALL
+set_global_assignment -name NUM_PARALLEL_PROCESSORS 10
 set_location_assignment PIN_Y2 -to CLOCK_50
 set_location_assignment PIN_AG14 -to CLOCK2_50
 set_location_assignment PIN_AG15 -to CLOCK3_50
@@ -604,11 +608,14 @@ set_global_assignment -name VERILOG_FILE matrix_lut.v
 set_global_assignment -name VERILOG_FILE Input_Buffer.v
 set_global_assignment -name VERILOG_FILE hash_engine.v
 set_global_assignment -name VERILOG_FILE CTR_seed_controller.v
-set_global_assignment -name VERILOG_FILE LFSR.v
 set_global_assignment -name VERILOG_FILE controlador.v
+set_global_assignment -name VERILOG_FILE LFSR.v
 set_global_assignment -name VERILOG_FILE compression_unit.v
 set_global_assignment -name VERILOG_FILE aes_sbox_rom_2p.v
 set_global_assignment -name VERILOG_FILE AES.v
+set_global_assignment -name VERILOG_FILE aes128_tb.v
+set_global_assignment -name VERILOG_FILE tb_seed_generator_hankel_real.v
+set_global_assignment -name VERILOG_FILE tb_seed_generator_hankel_real_bin.v
 set_global_assignment -name QIP_FILE pll_150.qip
 set_global_assignment -name BDF_FILE privacy_amplification.bdf
 set_global_assignment -name PARTITION_NETLIST_TYPE SOURCE -section_id Top

@@ -4,10 +4,10 @@ module top #(
     // ============================================================
     // Parametros globais do Privacy Amplification
     // ============================================================
-    parameter N = 640,
-    parameter W = 64,
-    parameter P = 32,
-    parameter L = 64,
+    parameter N = 1200,
+    parameter W = 128,
+    parameter P = 660,
+    parameter L = 660,
     // ============================================================
     // Parametros do Seed Generator AES-128 CTR
     // Atualize estes valores com os gerados pelo gerar_dados.py
@@ -147,6 +147,37 @@ module top #(
     assign safe_window = stream_valid ? current_matrix_window : {(W+P-1){1'b0}};
 
     // ============================================================
+    // Registrador de fronteira seed_generator/Input_Buffer -> compression_unit
+    //
+    // stream_valid depende de seed_ready (win_valid_bits do seed_generator),
+    // um sinal com fanout alto que precisa alcançar as P instancias do
+    // hash_engine. Sem esse registrador, a decisao de "pronto" + o
+    // roteamento ate essas instancias + a reducao AND/XOR de cada uma
+    // aconteciam tudo no mesmo ciclo. Registrando key/window/enable/
+    // clear_acc juntos (mantendo-os em lockstep, como o proprio hash_engine
+    // ja faz entre seus 2 estagios internos), a decisao de pronto tem um
+    // ciclo inteiro soh para chegar fisicamente aos destinos.
+    // ============================================================
+    reg [(W-1):0]   safe_key_r;
+    reg [(W+P-2):0] safe_window_r;
+    reg             enable_r;
+    reg             clear_acc_r;
+
+    always @(posedge clock) begin
+        if (sys_reset) begin
+            safe_key_r    <= {W{1'b0}};
+            safe_window_r <= {(W+P-1){1'b0}};
+            enable_r      <= 1'b0;
+            clear_acc_r   <= 1'b0;
+        end else begin
+            safe_key_r    <= safe_key;
+            safe_window_r <= safe_window;
+            enable_r      <= enable;
+            clear_acc_r   <= clear_acc;
+        end
+    end
+
+    // ============================================================
     // Controlador principal
     // ============================================================
     controlador #(
@@ -269,11 +300,11 @@ module top #(
         .clock         (clock),
         .reset         (sys_reset),
 
-        .clear_acc     (clear_acc),
-        .enable        (enable),
+        .clear_acc     (clear_acc_r),
+        .enable        (enable_r),
 
-        .key           (safe_key),
-        .matrix_window (safe_window),
+        .key           (safe_key_r),
+        .matrix_window (safe_window_r),
 
         .hash_out      (current_hash_out)
     );

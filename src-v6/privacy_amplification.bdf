@@ -88,7 +88,7 @@ refer to the applicable agreement for further details.
 	(annotation_block (location)(rect 824 464 888 488))
 )
 (symbol
-	(rect 176 408 312 488)
+	(rect 192 408 328 488)
 	(text "pll_150" (rect 5 0 39 12)(font "Arial" ))
 	(text "inst1" (rect 8 64 30 81)(font "Intel Clear" ))
 	(port
@@ -110,7 +110,7 @@ refer to the applicable agreement for further details.
 	)
 )
 (symbol
-	(rect 392 408 592 520)
+	(rect 392 392 592 504)
 	(text "top" (rect 5 0 20 12)(font "Arial" ))
 	(text "inst" (rect 8 96 25 108)(font "Arial" ))
 	(port
@@ -150,22 +150,22 @@ refer to the applicable agreement for further details.
 	)
 	(parameter
 		"N"
-		"640"
+		"1200"
 		""
 		(type "PARAMETER_SIGNED_DEC")	)
 	(parameter
 		"W"
-		"64"
+		"128"
 		""
 		(type "PARAMETER_SIGNED_DEC")	)
 	(parameter
 		"P"
-		"32"
+		"660"
 		""
 		(type "PARAMETER_SIGNED_DEC")	)
 	(parameter
 		"L"
-		"64"
+		"660"
 		""
 		(type "PARAMETER_SIGNED_DEC")	)
 	(parameter
@@ -183,46 +183,60 @@ refer to the applicable agreement for further details.
 		"000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001"
 		""
 		(type "PARAMETER_UNSIGNED_BIN")	)
-	(parameter
-		"USE_LFSR_SEED"
-		"1"
-		""
-		(type "PARAMETER_SIGNED_DEC")	)
-	(parameter
-		"LFSR_INIT"
-		"10101100111000010010101101111101"
-		""
-		(type "PARAMETER_UNSIGNED_BIN")	)
 	(drawing
 		(rectangle (rect 16 16 184 96))
 	)
-	(annotation_block (parameter)(rect 592 216 1680 408))
-)
-(connector
-	(pt 312 440)
-	(pt 392 440)
-)
-(connector
-	(pt 176 440)
-	(pt 144 440)
-)
-(connector
-	(pt 392 456)
-	(pt 352 456)
+	(annotation_block (parameter)(rect 592 240 1664 392))
 )
 (connector
 	(pt 344 528)
 	(pt 352 528)
 )
 (connector
-	(pt 352 456)
-	(pt 352 528)
+	(pt 144 440)
+	(pt 192 440)
 )
 (connector
-	(pt 592 472)
+	(pt 328 440)
+	(pt 336 440)
+)
+(connector
+	(pt 648 456)
+	(pt 640 456)
+)
+(connector
 	(pt 648 472)
+	(pt 632 472)
+)
+(connector
+	(pt 352 528)
+	(pt 352 440)
+)
+(connector
+	(pt 336 440)
+	(pt 336 424)
+)
+(connector
+	(pt 640 456)
+	(pt 640 440)
+)
+(connector
+	(pt 632 472)
+	(pt 632 456)
+)
+(connector
+	(pt 336 424)
+	(pt 392 424)
+)
+(connector
+	(pt 352 440)
+	(pt 392 440)
+)
+(connector
+	(pt 592 440)
+	(pt 640 440)
 )
 (connector
 	(pt 592 456)
-	(pt 648 456)
+	(pt 632 456)
 )

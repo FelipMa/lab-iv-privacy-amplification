@@ -55,16 +55,17 @@ module controlador #(
         sys_reset    <= reset_sync_0;
     end
 
-    localparam S_IDLE     = 3'd0;
-    localparam S_PREPARE  = 3'd1;
-    localparam S_RUN      = 3'd2;
-    localparam S_DRAIN    = 3'd3;
-    localparam S_CAPTURE  = 3'd4;
-    localparam S_WRITE    = 3'd5;
-    localparam S_DONE     = 3'd6;
-    localparam S_GEN_SEED = 3'd7;
+    localparam S_IDLE     = 4'd0;
+    localparam S_PREPARE  = 4'd1;
+    localparam S_RUN      = 4'd2;
+    localparam S_DRAIN    = 4'd3;
+    localparam S_CAPTURE  = 4'd4;
+    localparam S_WRITE    = 4'd5;
+    localparam S_DONE     = 4'd6;
+    localparam S_DRAIN2   = 4'd7;
+    localparam S_GEN_SEED = 4'd8;
 
-    reg [2:0] current_state, next_state;
+    reg [3:0] current_state, next_state;
 
     reg [BATCH_BITS:0] batch_idx;
     reg [WORD_BITS:0]  words_idx;
@@ -74,6 +75,13 @@ module controlador #(
 
     assign ram_we = batch_ready && (ram_address < BATCHES);
 
+    // ============================================================
+    // Geracao da seed do AES-CTR via LFSR (uma vez por reset, antes de
+    // S_PREPARE). Entropia vem de um contador livre que NAO e zerado por
+    // sys_reset - o valor dele no instante da carga depende de por quanto
+    // tempo o reset ficou pressionado na placa, entao cada execucao parte
+    // de uma semente diferente.
+    // ============================================================
     localparam SEED_BITS = 128 + 96;
     localparam SEED_CNT_BITS = $clog2(SEED_BITS + 1);
 
@@ -86,6 +94,8 @@ module controlador #(
     always @(posedge clock)
         entropy_counter <= entropy_counter + 32'd1;
 
+    // Todos-uns e o estado de travamento do LFSR XNOR: se o contador
+    // estiver exatamente nesse valor na carga, usa o fallback fixo.
     wire [31:0] lfsr_seed_value = (entropy_counter == {32{1'b1}}) ? LFSR_INIT
                                                                   : entropy_counter;
 
@@ -156,7 +166,13 @@ module controlador #(
             end
 
             S_DRAIN: begin
-                // Bolha de um ciclo para o ultimo enable atravessar o pipeline do hash_engine.
+                // 1a bolha: atravessa o registrador de fronteira em top.v
+                // (safe_key_r/safe_window_r/enable_r/clear_acc_r).
+                next_state = S_DRAIN2;
+            end
+
+            S_DRAIN2: begin
+                // 2a bolha: atravessa o pipeline interno de 2 estagios do hash_engine.
                 next_state = S_CAPTURE;
             end
 
