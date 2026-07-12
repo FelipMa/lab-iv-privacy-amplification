@@ -1,83 +1,88 @@
-module top #(
-    parameter W = 64, // 128
-    parameter P = 64, // 782
-    parameter N = 1_000_000
-)(
-    input wire clk_fpga,
-    input wire rst_fpga,
+// Top sintetizavel da branch test/v1-altsyncram-validation.
+//
+// Adapta o top original (que mockava o Input Buffer e o Seed Generator via
+// shift-registers) para usar IPs altsyncram do Quartus:
+//   - input_rom alimenta o DUT com pares {matrix_window, key} pre-carregados
+//     a partir de input_vectors.mif.
+//   - output_ram captura hash_out (acessivel pelo Quartus In-System Memory
+//     Content Editor com instance name "ORAM").
+//
+// Pinout DE2-115:
+//   clk_fpga  <- CLOCK_50 (50 MHz)
+//   rst_fpga  <- KEY[0]   (botao ativo em baixo: pressionar = reset)
+//   LED_done  -> LEDR[0]
+//
+// Apos rst_fpga liberar, o circuito processa os 16 vetores em 18 ciclos.
+// Quando LED_done acende, a output_ram contem os resultados e pode ser
+// lida via JTAG no In-System Memory Content Editor.
+
+module top (
+    input  wire clk_fpga,
+    input  wire rst_fpga,
     output wire LED_done
 );
+
+    localparam W = 8;
+    localparam P = 8;
+    localparam MW_BITS = W + P - 1;
+    localparam WORD_BITS = W + MW_BITS;
+    localparam DEPTH = 16;
+    localparam LATENCY = 2;
+
     wire clock = clk_fpga;
-    wire reset = rst_fpga; 
+    wire reset = ~rst_fpga; // KEY[0] e ativo em baixo na DE2-115
 
-    localparam CYCLES_PER_ROW = N/W;
-    
-    // 16 bits, mas pode variar conforme o resultado de N/W
-    reg [15:0] cycle_counter;
-    
-    // Fios do Input Buffer para a Compression Unit
-    wire [W-1:0] current_key_chunk;
+    reg [5:0] cycle_counter;
+    reg done;
 
-    // Registrador que fica mudando a cada clock para simular um input
-    reg [W-1:0] current_key_chunk_reg;
-    assign current_key_chunk = current_key_chunk_reg;
+    wire rd_in_progress = (cycle_counter < DEPTH);
+    wire wr_in_progress = (cycle_counter >= LATENCY) && (cycle_counter < DEPTH + LATENCY);
 
-    // Fios do Seed Generator para a Compression Unit
-    wire [(W+P-2):0] current_matrix_window;
+    wire [3:0] rd_addr = rd_in_progress ? cycle_counter[3:0] : 4'd0;
+    wire [3:0] wr_addr = wr_in_progress ? (cycle_counter[3:0] - LATENCY[3:0]) : 4'd0;
+    wire       wren    = wr_in_progress;
 
-    // Registrador que fica mudando a cada clock para simular uma seed
-    reg [(W+P-2):0] current_matrix_window_reg;
-    assign current_matrix_window = current_matrix_window_reg;
+    wire [WORD_BITS-1:0] rom_q;
+    wire [W-1:0]         key           = rom_q[W-1:0];
+    wire [MW_BITS-1:0]   matrix_window = rom_q[WORD_BITS-1:W];
 
-    // Fios da Compression Unit para o Hash Register
-    wire [P-1:0] current_hash_out;
+    input_rom u_rom (
+        .clock   (clock),
+        .address (rd_addr),
+        .q       (rom_q)
+    );
 
-    (* noprune *) reg [P-1:0] hash_register;
+    wire [P-1:0] hash_out;
 
-    // Sinal de controle puro para reiniciar a Compression Unit
-    wire comp_unit_clear;
-    assign comp_unit_clear = (cycle_counter == 16'd0) ? 1'b1 : 1'b0;
-
-    // =========================================================================
-    // Compression Unit
-    // =========================================================================
     compression_unit #(
         .P(P),
         .W(W)
-    ) u_compression_unit (
+    ) u_dut (
         .clock         (clock),
-        .reset         (reset | comp_unit_clear), 
-        .key           (current_key_chunk),
-        .matrix_window (current_matrix_window),
-        .hash_out      (current_hash_out)
+        .reset         (reset),
+        .key           (key),
+        .matrix_window (matrix_window),
+        .hash_out      (hash_out)
+    );
+
+    output_ram u_ram (
+        .clock   (clock),
+        .address (wr_addr),
+        .data    (hash_out),
+        .wren    (wren),
+        .q       ()
     );
 
     always @(posedge clock) begin
         if (reset) begin
-            current_key_chunk_reg <= {W{1'b0}};
-            current_matrix_window_reg <= {(W+P-1){1'b0}};
-            hash_register <= {P{1'b0}};
-            cycle_counter <= 16'd0;
-        end else begin
-            // Controle do Contador
-            if (cycle_counter == (CYCLES_PER_ROW - 16'd1)) begin
-                cycle_counter <= 16'd0;
-            end else begin
-                cycle_counter <= cycle_counter + 16'd1;
-            end
-
-            // Gravação do Hash (No ciclo 0 a comp unit estabilizou o cálculo da linha anterior)
-            if (cycle_counter == 16'd0) begin
-                hash_register <= current_hash_out;
-            end
-
-            // Atualização das Entradas (Simulação via shift register)
-            current_key_chunk_reg <= {current_key_chunk_reg[(W-2):0], ~current_key_chunk_reg[W-1]};
-            current_matrix_window_reg <= {current_matrix_window_reg[(W+P-3):0], ~current_matrix_window_reg[W+P-2]};
+            cycle_counter <= 6'd0;
+            done          <= 1'b0;
+        end else if (!done) begin
+            if (cycle_counter == DEPTH + LATENCY - 1) done <= 1'b1;
+            cycle_counter <= cycle_counter + 6'd1;
         end
     end
 
-    // Dummy temporario
-    assign LED_done = hash_register[0];
+    assign LED_done = done;
 
 endmodule
